@@ -3,9 +3,10 @@ package io.quarkus.hibernate.search.elasticsearch.test;
 import org.hibernate.search.mapper.pojo.mapping.definition.annotation.Indexed;
 
 /**
- * This particular entity is not a valid entity as it is not marked with @Entity.
+ * An indexed entity.
  * <p>
- * It is done this way just for the sake of testing the extension bootstrap.
+ * Technically this particular class is not a valid entity as it is not marked with @Entity.
+ * However, that's not relevant for our tests, and it's easier this way.
  */
 @Indexed
 public class IndexedEntity {

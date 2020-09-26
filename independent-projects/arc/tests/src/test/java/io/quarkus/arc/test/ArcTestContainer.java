@@ -3,6 +3,7 @@ package io.quarkus.arc.test;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ComponentsProvider;
 import io.quarkus.arc.ResourceReferenceProvider;
+import io.quarkus.arc.processor.AlternativePriorities;
 import io.quarkus.arc.processor.AnnotationsTransformer;
 import io.quarkus.arc.processor.BeanArchives;
 import io.quarkus.arc.processor.BeanDeploymentValidator;
@@ -64,6 +65,7 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
 
         private final List<Class<?>> resourceReferenceProviders;
         private final List<Class<?>> beanClasses;
+        private final List<Class<?>> additionalClasses;
         private final List<Class<? extends Annotation>> resourceAnnotations;
         private final List<BeanRegistrar> beanRegistrars;
         private final List<ObserverRegistrar> observerRegistrars;
@@ -76,10 +78,12 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
         private boolean shouldFail = false;
         private boolean removeUnusedBeans = false;
         private final List<Predicate<BeanInfo>> exclusions;
+        private AlternativePriorities alternativePriorities;
 
         public Builder() {
             resourceReferenceProviders = new ArrayList<>();
             beanClasses = new ArrayList<>();
+            additionalClasses = new ArrayList<>();
             resourceAnnotations = new ArrayList<>();
             beanRegistrars = new ArrayList<>();
             observerRegistrars = new ArrayList<>();
@@ -99,6 +103,11 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
 
         public Builder beanClasses(Class<?>... beanClasses) {
             Collections.addAll(this.beanClasses, beanClasses);
+            return this;
+        }
+
+        public Builder additionalClasses(Class<?>... additionalClasses) {
+            Collections.addAll(this.additionalClasses, additionalClasses);
             return this;
         }
 
@@ -163,11 +172,13 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
             return this;
         }
 
+        public Builder alternativePriorities(AlternativePriorities priorities) {
+            this.alternativePriorities = priorities;
+            return this;
+        }
+
         public ArcTestContainer build() {
-            return new ArcTestContainer(resourceReferenceProviders, beanClasses, resourceAnnotations, beanRegistrars,
-                    observerRegistrars, contextRegistrars, interceptorBindingRegistrars, annotationsTransformers,
-                    injectionsPointsTransformers,
-                    observerTransformers, beanDeploymentValidators, shouldFail, removeUnusedBeans, exclusions);
+            return new ArcTestContainer(this);
         }
 
     }
@@ -175,6 +186,7 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
     private final List<Class<?>> resourceReferenceProviders;
 
     private final List<Class<?>> beanClasses;
+    private final List<Class<?>> additionalClasses;
 
     private final List<Class<? extends Annotation>> resourceAnnotations;
 
@@ -200,38 +212,46 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
     private final boolean removeUnusedBeans;
     private final List<Predicate<BeanInfo>> exclusions;
 
+    private final AlternativePriorities alternativePriorities;
+
     public ArcTestContainer(Class<?>... beanClasses) {
-        this(Collections.emptyList(), Arrays.asList(beanClasses), Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyList(), Collections.emptyList(), false, false,
-                Collections.emptyList());
+        this.resourceReferenceProviders = Collections.emptyList();
+        this.beanClasses = Arrays.asList(beanClasses);
+        this.additionalClasses = Collections.emptyList();
+        this.resourceAnnotations = Collections.emptyList();
+        this.beanRegistrars = Collections.emptyList();
+        this.observerRegistrars = Collections.emptyList();
+        this.contextRegistrars = Collections.emptyList();
+        this.bindingRegistrars = Collections.emptyList();
+        this.annotationsTransformers = Collections.emptyList();
+        this.injectionPointsTransformers = Collections.emptyList();
+        this.observerTransformers = Collections.emptyList();
+        this.beanDeploymentValidators = Collections.emptyList();
+        this.buildFailure = new AtomicReference<Throwable>(null);
+        this.shouldFail = false;
+        this.removeUnusedBeans = false;
+        this.exclusions = Collections.emptyList();
+        this.alternativePriorities = null;
     }
 
-    public ArcTestContainer(List<Class<?>> resourceReferenceProviders, List<Class<?>> beanClasses,
-            List<Class<? extends Annotation>> resourceAnnotations,
-            List<BeanRegistrar> beanRegistrars, List<ObserverRegistrar> observerRegistrars,
-            List<ContextRegistrar> contextRegistrars,
-            List<InterceptorBindingRegistrar> bindingRegistrars,
-            List<AnnotationsTransformer> annotationsTransformers, List<InjectionPointsTransformer> ipTransformers,
-            List<ObserverTransformer> observerTransformers,
-            List<BeanDeploymentValidator> beanDeploymentValidators, boolean shouldFail, boolean removeUnusedBeans,
-            List<Predicate<BeanInfo>> exclusions) {
-        this.resourceReferenceProviders = resourceReferenceProviders;
-        this.beanClasses = beanClasses;
-        this.resourceAnnotations = resourceAnnotations;
-        this.beanRegistrars = beanRegistrars;
-        this.observerRegistrars = observerRegistrars;
-        this.contextRegistrars = contextRegistrars;
-        this.bindingRegistrars = bindingRegistrars;
-        this.annotationsTransformers = annotationsTransformers;
-        this.injectionPointsTransformers = ipTransformers;
-        this.observerTransformers = observerTransformers;
-        this.beanDeploymentValidators = beanDeploymentValidators;
+    public ArcTestContainer(Builder builder) {
+        this.resourceReferenceProviders = builder.resourceReferenceProviders;
+        this.beanClasses = builder.beanClasses;
+        this.additionalClasses = builder.additionalClasses;
+        this.resourceAnnotations = builder.resourceAnnotations;
+        this.beanRegistrars = builder.beanRegistrars;
+        this.observerRegistrars = builder.observerRegistrars;
+        this.contextRegistrars = builder.contextRegistrars;
+        this.bindingRegistrars = builder.interceptorBindingRegistrars;
+        this.annotationsTransformers = builder.annotationsTransformers;
+        this.injectionPointsTransformers = builder.injectionsPointsTransformers;
+        this.observerTransformers = builder.observerTransformers;
+        this.beanDeploymentValidators = builder.beanDeploymentValidators;
         this.buildFailure = new AtomicReference<Throwable>(null);
-        this.shouldFail = shouldFail;
-        this.removeUnusedBeans = removeUnusedBeans;
-        this.exclusions = exclusions;
+        this.shouldFail = builder.shouldFail;
+        this.removeUnusedBeans = builder.removeUnusedBeans;
+        this.exclusions = builder.exclusions;
+        this.alternativePriorities = builder.alternativePriorities;
     }
 
     // this is where we start Arc, we operate on a per-method basis
@@ -284,11 +304,22 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
         Arc.shutdown();
 
         // Build index
-        Index index;
+        Index beanArchiveIndex;
         try {
-            index = index(beanClasses);
+            beanArchiveIndex = index(beanClasses);
         } catch (IOException e) {
             throw new IllegalStateException("Failed to create index", e);
+        }
+
+        Index applicationIndex;
+        if (additionalClasses.isEmpty()) {
+            applicationIndex = null;
+        } else {
+            try {
+                applicationIndex = index(additionalClasses);
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to create index", e);
+            }
         }
 
         ClassLoader old = Thread.currentThread()
@@ -321,7 +352,9 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
 
             BeanProcessor.Builder builder = BeanProcessor.builder()
                     .setName(testClass.getSimpleName())
-                    .setIndex(BeanArchives.buildBeanArchiveIndex(getClass().getClassLoader(), index));
+                    .setBeanArchiveIndex(BeanArchives.buildBeanArchiveIndex(getClass().getClassLoader(),
+                            new BeanArchives.PersistentClassIndex(), beanArchiveIndex))
+                    .setApplicationIndex(applicationIndex);
             if (!resourceAnnotations.isEmpty()) {
                 builder.addResourceAnnotations(resourceAnnotations.stream()
                         .map(c -> DotName.createSimple(c.getName()))
@@ -362,6 +395,7 @@ public class ArcTestContainer implements BeforeEachCallback, AfterEachCallback {
             for (Predicate<BeanInfo> exclusion : exclusions) {
                 builder.addRemovalExclusion(exclusion);
             }
+            builder.setAlternativePriorities(alternativePriorities);
 
             BeanProcessor beanProcessor = builder.build();
 

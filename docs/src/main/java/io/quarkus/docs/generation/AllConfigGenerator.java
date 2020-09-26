@@ -31,12 +31,12 @@ import io.quarkus.annotation.processor.generate_doc.ConfigDocItemScanner;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocSection;
 import io.quarkus.annotation.processor.generate_doc.ConfigDocWriter;
 import io.quarkus.annotation.processor.generate_doc.DocGeneratorUtil;
-import io.quarkus.bootstrap.resolver.AppModelResolverException;
+import io.quarkus.bootstrap.resolver.maven.BootstrapMavenException;
 import io.quarkus.bootstrap.resolver.maven.MavenArtifactResolver;
 import io.quarkus.docs.generation.ExtensionJson.Extension;
 
 public class AllConfigGenerator {
-    public static void main(String[] args) throws AppModelResolverException, IOException {
+    public static void main(String[] args) throws BootstrapMavenException, IOException {
         if (args.length != 2) {
             // exit 1 will break Maven
             throw new IllegalArgumentException("Usage: <version> <extension.json>");
@@ -55,7 +55,7 @@ public class AllConfigGenerator {
                 .enable(JsonParser.Feature.ALLOW_COMMENTS)
                 .enable(JsonParser.Feature.ALLOW_NUMERIC_LEADING_ZEROS)
                 .setPropertyNamingStrategy(PropertyNamingStrategy.KEBAB_CASE);
-        MavenArtifactResolver resolver = MavenArtifactResolver.builder().build();
+        MavenArtifactResolver resolver = MavenArtifactResolver.builder().setWorkspaceDiscovery(false).build();
 
         // let's read it (and ignore the fields we don't need)
         ExtensionJson extensionJson = mapper.readValue(jsonFile, ExtensionJson.class);
@@ -73,7 +73,7 @@ public class AllConfigGenerator {
             extensionsByGav.put(extension.groupId + ":" + extension.artifactId, extension);
         }
 
-        // examine all the extension jars 
+        // examine all the extension jars
         List<ArtifactRequest> deploymentRequests = new ArrayList<>(extensionJson.extensions.size());
         for (ArtifactResult result : resolver.resolve(requests)) {
             Artifact artifact = result.getArtifact();
@@ -130,8 +130,9 @@ public class AllConfigGenerator {
 
         // Temporary fix for https://github.com/quarkusio/quarkus/issues/5214 until we figure out how to fix it
         Extension openApi = extensionsByGav.get("io.quarkus:quarkus-smallrye-openapi");
-        if (openApi != null)
+        if (openApi != null) {
             extensionsByConfigRoots.put("io.quarkus.smallrye.openapi.common.deployment.SmallRyeOpenApiConfig", openApi);
+        }
 
         // sort extensions by name, assign their config items based on their config roots
         for (Entry<String, Extension> entry : extensionsByConfigRoots.entrySet()) {
@@ -166,6 +167,7 @@ public class AllConfigGenerator {
             DocGeneratorUtil.sort(configDocItems);
             // insert a header
             ConfigDocSection header = new ConfigDocSection();
+            header.setShowSection(true);
             header.setSectionDetailsTitle(entry.getKey());
             header.setAnchorPrefix(artifactIdsByName.get(entry.getKey()));
             header.setName(artifactIdsByName.get(entry.getKey()));
@@ -175,7 +177,8 @@ public class AllConfigGenerator {
         }
 
         // write our docs
-        ConfigDocGeneratedOutput allConfigGeneratedOutput = new ConfigDocGeneratedOutput("all-config.adoc", true, allItems,
+        ConfigDocGeneratedOutput allConfigGeneratedOutput = new ConfigDocGeneratedOutput("quarkus-all-config.adoc", true,
+                allItems,
                 false);
         configDocWriter.writeAllExtensionConfigDocumentation(allConfigGeneratedOutput);
     }

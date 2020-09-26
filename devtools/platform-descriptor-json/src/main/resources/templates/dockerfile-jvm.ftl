@@ -1,7 +1,7 @@
 ####
 # This Dockerfile is used in order to build a container that runs the Quarkus application in JVM mode
 #
-# Before building the docker image run:
+# Before building the container image run:
 #
 # mvn package
 #
@@ -13,17 +13,24 @@
 #
 # docker run -i --rm -p 8080:8080 quarkus/${project_artifactId}-jvm
 #
+# If you want to include the debug port into your docker image
+# you will have to expose the debug port (default 5005) like this :  EXPOSE 8080 5050
+# 
+# Then run the container using : 
+#
+# docker run -i --rm -p 8080:8080 -p 5005:5005 -e JAVA_ENABLE_DEBUG="true" quarkus/${project_artifactId}-jvm
+#
 ###
 FROM registry.access.redhat.com/ubi8/ubi-minimal:8.1
 
-ARG JAVA_PACKAGE=java-1.8.0-openjdk-headless
-ARG RUN_JAVA_VERSION=1.3.5
+ARG JAVA_PACKAGE=java-11-openjdk-headless
+ARG RUN_JAVA_VERSION=1.3.8
 
 ENV LANG='en_US.UTF-8' LANGUAGE='en_US:en'
 
 # Install java and the run-java script
 # Also set up permissions for user `1001`
-RUN microdnf install openssl curl ca-certificates ${JAVA_PACKAGE} \
+RUN microdnf install curl ca-certificates ${JAVA_PACKAGE} \
     && microdnf update \
     && microdnf clean all \
     && mkdir /deployments \

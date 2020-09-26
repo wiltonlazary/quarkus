@@ -1,69 +1,94 @@
 package io.quarkus.restclient.runtime;
 
+import java.lang.reflect.Field;
 import java.util.Set;
 
+import javax.enterprise.inject.spi.CDI;
 import javax.ws.rs.RuntimeType;
 
 import org.eclipse.microprofile.rest.client.spi.RestClientBuilderResolver;
-import org.jboss.resteasy.core.providerfactory.ClientHelper;
-import org.jboss.resteasy.core.providerfactory.NOOPServerHelper;
 import org.jboss.resteasy.core.providerfactory.ResteasyProviderFactoryImpl;
 import org.jboss.resteasy.microprofile.client.RestClientBuilderImpl;
+import org.jboss.resteasy.microprofile.client.RestClientExtension;
 import org.jboss.resteasy.plugins.providers.RegisterBuiltin;
 import org.jboss.resteasy.spi.InjectorFactory;
 import org.jboss.resteasy.spi.ResteasyProviderFactory;
 
+import io.quarkus.arc.runtime.BeanContainer;
+import io.quarkus.arc.runtime.BeanContainerListener;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
 
 @Recorder
 public class RestClientRecorder {
+
+    public static ResteasyProviderFactory providerFactory;
+
+    public BeanContainerListener hackAroundExtension() {
+        return new BeanContainerListener() {
+            @Override
+            public void created(BeanContainer container) {
+                try {
+                    Field f = RestClientExtension.class.getDeclaredField("manager");
+                    f.setAccessible(true);
+                    f.set(null, CDI.current().getBeanManager());
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        };
+    }
+
     public void setRestClientBuilderResolver() {
         RestClientBuilderResolver.setInstance(new BuilderResolver());
     }
 
-    public void setSslEnabled(boolean sslEnabled) {
-        RestClientBuilderImpl.setSslEnabled(sslEnabled);
-    }
-
-    public void initializeResteasyProviderFactory(RuntimeValue<InjectorFactory> injectorFactory, boolean useBuiltIn,
+    public void initializeResteasyProviderFactory(RuntimeValue<InjectorFactory> ifc, boolean useBuiltIn,
             Set<String> providersToRegister,
             Set<String> contributedProviders) {
-        ResteasyProviderFactory clientProviderFactory = new ResteasyProviderFactoryImpl(null, true) {
+        ResteasyProviderFactory clientProviderFactory = new ResteasyProviderFactoryImpl(RuntimeType.CLIENT,
+                new ResteasyProviderFactoryImpl()) {
             @Override
             public RuntimeType getRuntimeType() {
                 return RuntimeType.CLIENT;
             }
 
             @Override
-            protected void initializeUtils() {
-                clientHelper = new ClientHelper(this);
-                serverHelper = NOOPServerHelper.INSTANCE;
-            }
-
-            @Override
             public InjectorFactory getInjectorFactory() {
-                return injectorFactory.getValue();
+                return ifc.getValue();
             }
         };
 
-        if (useBuiltIn) {
-            RegisterBuiltin.register(clientProviderFactory);
-            registerProviders(clientProviderFactory, contributedProviders, false);
+        registerProviders(clientProviderFactory, useBuiltIn, providersToRegister, contributedProviders);
+
+        if (ResteasyProviderFactory.peekInstance() != null) {
+            ResteasyProviderFactory serverProviderFactory = ResteasyProviderFactory.getInstance();
+            registerProviders(serverProviderFactory, useBuiltIn, providersToRegister, contributedProviders);
         } else {
-            providersToRegister.removeAll(contributedProviders);
-            registerProviders(clientProviderFactory, providersToRegister, true);
-            registerProviders(clientProviderFactory, contributedProviders, false);
+            ResteasyProviderFactory.setInstance(clientProviderFactory);
         }
 
         RestClientBuilderImpl.setProviderFactory(clientProviderFactory);
+        providerFactory = clientProviderFactory;
     }
 
-    private static void registerProviders(ResteasyProviderFactory clientProviderFactory, Set<String> providersToRegister,
+    private static void registerProviders(ResteasyProviderFactory providerFactory, boolean useBuiltIn,
+            Set<String> providersToRegister,
+            Set<String> contributedProviders) {
+        if (useBuiltIn) {
+            RegisterBuiltin.register(providerFactory);
+        } else {
+            providersToRegister.removeAll(contributedProviders);
+            registerProviders(providerFactory, providersToRegister, true);
+        }
+        registerProviders(providerFactory, contributedProviders, false);
+    }
+
+    private static void registerProviders(ResteasyProviderFactory providerFactory, Set<String> providersToRegister,
             Boolean isBuiltIn) {
         for (String providerToRegister : providersToRegister) {
             try {
-                clientProviderFactory
+                providerFactory
                         .registerProvider(Thread.currentThread().getContextClassLoader().loadClass(providerToRegister.trim()),
                                 isBuiltIn);
             } catch (ClassNotFoundException e) {

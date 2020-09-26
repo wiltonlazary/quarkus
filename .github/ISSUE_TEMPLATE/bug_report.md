@@ -18,6 +18,11 @@ assignees: ''
 
 
 **To Reproduce**
+
+Link to a small reproducer (preferably a Maven project if the issue is not Gradle-specific).
+
+Or attach an archive containing the reproducer to the issue.
+
 Steps to reproduce the behavior:
 1. 
 2. 
@@ -37,6 +42,7 @@ Steps to reproduce the behavior:
  - Output of `java -version`: 
  - GraalVM version (if different from Java): 
  - Quarkus version or git rev: 
+ - Build tool (ie. output of `mvnw --version` or `gradlew --version`): 
 
 **Additional context**
 (Add any other context about the problem here.)

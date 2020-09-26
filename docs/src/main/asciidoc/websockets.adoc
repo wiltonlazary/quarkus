@@ -17,7 +17,7 @@ To complete this guide, you need:
 * less than 15 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 
 
 
@@ -51,15 +51,33 @@ cd websockets-quickstart
 
 This command generates the Maven project (without any classes) and import the `undertow-websockets` extension.
 
+If you already have your Quarkus project configured, you can add the `undertow-websockets` extension
+to your project by running the following command in your project base directory:
+
+[source,bash]
+----
+./mvnw quarkus:add-extension -Dextensions="undertow-websockets"
+----
+
+This will add the following to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-undertow-websockets</artifactId>
+</dependency>
+----
+
 == Handling web sockets
 
 Our application contains a single class that handles the web sockets.
-Create the `org.acme.websocket.ChatSocket` class in the `src/main/java` directory.
+Create the `org.acme.websockets.ChatSocket` class in the `src/main/java` directory.
 Copy the following content into the created file:
 
 [source,java]
 ----
-package org.acme.websocket;
+package org.acme.websockets;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -142,4 +160,4 @@ image:websocket-guide-screenshot.png[alt=Application]
 As usual, the application can be packaged using `./mvnw clean package` and executed using the `-runner.jar` file.
 You can also build the native executable using `./mvnw package -Pnative`.
 
-You can also test your web socket applications using the approach detailed {quickstarts-blob-url}/websockets-quickstart/src/test/java/org/acme/websocket/ChatTestCase.java[here].
+You can also test your web socket applications using the approach detailed {quickstarts-blob-url}/websockets-quickstart/src/test/java/org/acme/websockets/ChatTest.java[here].

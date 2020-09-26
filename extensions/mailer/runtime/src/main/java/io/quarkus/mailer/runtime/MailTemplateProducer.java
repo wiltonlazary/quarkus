@@ -13,10 +13,11 @@ import javax.inject.Singleton;
 
 import org.jboss.logging.Logger;
 
+import io.quarkus.arc.Arc;
 import io.quarkus.mailer.MailTemplate;
-import io.quarkus.mailer.ReactiveMailer;
+import io.quarkus.qute.Template;
+import io.quarkus.qute.TemplateInstance;
 import io.quarkus.qute.api.ResourcePath;
-import io.quarkus.qute.api.VariantTemplate;
 
 @Singleton
 public class MailTemplateProducer {
@@ -24,10 +25,10 @@ public class MailTemplateProducer {
     private static final Logger LOGGER = Logger.getLogger(MailTemplateProducer.class);
 
     @Inject
-    ReactiveMailer mailer;
+    MutinyMailerImpl mailer;
 
     @Any
-    Instance<VariantTemplate> template;
+    Instance<Template> template;
 
     @Produces
     MailTemplate getDefault(InjectionPoint injectionPoint) {
@@ -66,7 +67,7 @@ public class MailTemplateProducer {
             }
         }
         if (path == null || path.value().isEmpty()) {
-            throw new IllegalStateException("No template reource path specified");
+            throw new IllegalStateException("No template resource path specified");
         }
         final String name = path.value();
         return new MailTemplate() {
@@ -75,5 +76,13 @@ public class MailTemplateProducer {
                 return new MailTemplateInstanceImpl(mailer, template.select(new ResourcePath.Literal(name)).get().instance());
             }
         };
+    }
+
+    /**
+     * Called by MailTemplateInstanceAdaptor
+     */
+    public static MailTemplate.MailTemplateInstance getMailTemplateInstance(TemplateInstance instance) {
+        MutinyMailerImpl mailerImpl = Arc.container().instance(MutinyMailerImpl.class).get();
+        return new MailTemplateInstanceImpl(mailerImpl, instance);
     }
 }

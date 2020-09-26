@@ -8,6 +8,7 @@ import javax.inject.Inject;
 
 import org.eclipse.microprofile.jwt.Claims;
 import org.eclipse.microprofile.jwt.JsonWebToken;
+import org.jboss.logging.Logger;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
 import org.jose4j.jwt.consumer.JwtConsumerBuilder;
@@ -15,6 +16,7 @@ import org.jose4j.jwt.consumer.JwtConsumerBuilder;
 import io.quarkus.oidc.AccessTokenCredential;
 import io.quarkus.oidc.IdToken;
 import io.quarkus.oidc.IdTokenCredential;
+import io.quarkus.oidc.OIDCException;
 import io.quarkus.security.credential.TokenCredential;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.smallrye.jwt.auth.cdi.NullJsonWebToken;
@@ -23,6 +25,7 @@ import io.smallrye.jwt.auth.cdi.NullJsonWebToken;
 @Alternative
 @RequestScoped
 public class OidcJsonWebTokenProducer {
+    private static final Logger LOG = Logger.getLogger(OidcJsonWebTokenProducer.class);
 
     @Inject
     SecurityIdentity identity;
@@ -60,6 +63,9 @@ public class OidcJsonWebTokenProducer {
         }
         TokenCredential credential = identity.getCredential(type);
         if (credential != null) {
+            if (credential instanceof AccessTokenCredential && ((AccessTokenCredential) credential).isOpaque()) {
+                throw new OIDCException("Opaque access token can not be converted to JsonWebToken");
+            }
             JwtClaims jwtClaims;
             try {
                 jwtClaims = new JwtConsumerBuilder()
@@ -67,11 +73,13 @@ public class OidcJsonWebTokenProducer {
                         .setSkipAllValidators()
                         .build().processToClaims(credential.getToken());
             } catch (InvalidJwtException e) {
-                throw new RuntimeException(e);
+                throw new OIDCException(e);
             }
             jwtClaims.setClaim(Claims.raw_token.name(), credential.getToken());
             return new OidcJwtCallerPrincipal(jwtClaims, credential);
         }
-        throw new IllegalStateException("Current identity not associated with an access token");
+        String tokenType = type == AccessTokenCredential.class ? "access" : "ID";
+        LOG.tracef("Current identity is not associated with an %s token", tokenType);
+        return new NullJsonWebToken();
     }
 }

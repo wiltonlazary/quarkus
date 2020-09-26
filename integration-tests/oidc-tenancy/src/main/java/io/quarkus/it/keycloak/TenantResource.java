@@ -1,38 +1,129 @@
 package io.quarkus.it.keycloak;
 
-import java.util.HashMap;
-import java.util.Map;
-
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
-import javax.json.JsonString;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.core.MediaType;
 
 import org.eclipse.microprofile.jwt.JsonWebToken;
+
+import io.quarkus.arc.Arc;
+import io.quarkus.oidc.AccessTokenCredential;
+import io.quarkus.oidc.IdToken;
+import io.quarkus.oidc.OIDCException;
+import io.quarkus.oidc.UserInfo;
+import io.quarkus.security.identity.SecurityIdentity;
 
 @Path("/tenant/{tenant}/api/user")
 public class TenantResource {
 
     @Inject
-    JsonWebToken jwt;
+    JsonWebToken accessToken;
+
+    @Inject
+    SecurityIdentity securityIdentity;
+
+    @Inject
+    AccessTokenCredential accessTokenCred;
+
+    @Inject
+    @IdToken
+    JsonWebToken idToken;
 
     @GET
     @RolesAllowed("user")
-    @Produces(MediaType.APPLICATION_JSON)
-    public Map<String, Object> permissions(@PathParam("tenant") String tenant) {
-        Map<String, Object> claims = new HashMap<>();
-        for (String i : jwt.getClaimNames()) {
-            claims.put(i, fromJsonWebObject(jwt.getClaim(i)));
+    public String userNameService(@PathParam("tenant") String tenant) {
+        if (tenant.startsWith("tenant-web-app")) {
+            throw new OIDCException("Wrong tenant");
         }
-        return claims;
+        String name = getNameServiceType();
+        if ("tenant-d".equals(tenant)) {
+            UserInfo userInfo = getUserInfo();
+            name = name + "." + userInfo.getString("preferred_username");
+        }
+        return tenant + ":" + name;
     }
 
-    private Object fromJsonWebObject(Object claim) {
-        return claim instanceof JsonString ? ((JsonString) claim).getString() : claim != null ? claim.toString() : null;
+    @GET
+    @Path("webapp")
+    @RolesAllowed("user")
+    public String userNameWebApp(@PathParam("tenant") String tenant) {
+        if (!tenant.equals("tenant-web-app")) {
+            throw new OIDCException("Wrong tenant");
+        }
+        UserInfo userInfo = getUserInfo();
+        if (!idToken.getGroups().contains("user")) {
+            throw new OIDCException("Groups expected");
+        }
+        return tenant + ":" + getNameWebAppType(userInfo.getString("upn"), "upn", "preferred_username");
+    }
+
+    private UserInfo getUserInfo() {
+        if (!(securityIdentity.getAttribute("userinfo") instanceof UserInfo)) {
+            throw new OIDCException("userinfo attribute must be set");
+        }
+        // Not injecting in the service field as not all tenants require it
+        return Arc.container().instance(UserInfo.class).get();
+    }
+
+    @GET
+    @Path("webapp2")
+    @RolesAllowed("user")
+    public String userNameWebApp2(@PathParam("tenant") String tenant) {
+        if (!tenant.equals("tenant-web-app2")) {
+            throw new OIDCException("Wrong tenant");
+        }
+        if (idToken.getGroups().contains("user")) {
+            throw new OIDCException("Groups are not expected");
+        }
+        return tenant + ":" + getNameWebAppType(idToken.getName(), "preferred_username", "upn");
+    }
+
+    private String getNameWebAppType(String name,
+            String idTokenNameClaim,
+            String idTokenNameClaimNotExpected) {
+        if (!"ID".equals(idToken.getClaim("typ"))) {
+            throw new OIDCException("Wrong ID token type");
+        }
+        if (!name.equals(idToken.getClaim(idTokenNameClaim))) {
+            throw new OIDCException(idTokenNameClaim + " claim is missing");
+        }
+        if (idToken.getClaim(idTokenNameClaimNotExpected) != null) {
+            throw new OIDCException(idTokenNameClaimNotExpected + " claim is not expected");
+        }
+        // Access token must be available too
+        if (!"Bearer".equals(accessToken.getClaim("typ"))) {
+            throw new OIDCException("Wrong access token type");
+        }
+        if (accessTokenCred.isOpaque()) {
+            throw new OIDCException("JWT token is expected");
+        }
+        return name;
+    }
+
+    private String getNameServiceType() {
+        if (accessTokenCred.isOpaque()) {
+            throw new OIDCException("JWT token is expected");
+        }
+        if (!"Bearer".equals(accessToken.getClaim("typ"))) {
+            throw new OIDCException("Wrong access token type");
+        }
+        String name = null;
+        try {
+            name = idToken.getName();
+        } catch (OIDCException ex) {
+            // expected because an ID token must not be available
+        }
+        if (name != null) {
+            throw new OIDCException("Only the access token can be availabe with the 'service' application type");
+        }
+        name = accessToken.getName();
+        // The test is set up to use 'upn' for the 'web-app' application type
+        if (!name.equals(accessToken.getClaim("preferred_username"))) {
+            throw new OIDCException("preferred_username claim is missing");
+        }
+        return name;
     }
 
 }

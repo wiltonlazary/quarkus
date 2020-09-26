@@ -64,6 +64,28 @@ public class PackageIT extends MojoTestBase {
     }
 
     @Test
+    public void testQuarkusPackageOutputDirectory()
+            throws MavenInvocationException, IOException, InterruptedException {
+        testDir = initProject("projects/quarkus.package.output-directory");
+
+        running = new RunningInvoker(testDir, false);
+        // we do want to run the tests too
+        final MavenProcessInvocationResult result = running.execute(Collections.singletonList("package"),
+                Collections.emptyMap());
+
+        assertThat(result.getProcess().waitFor()).isEqualTo(0);
+
+        File targetDir = getTargetDir();
+        List<File> jars = getFilesEndingWith(targetDir, ".jar");
+        assertThat(jars).hasSize(1);
+
+        targetDir = new File(targetDir, "custom-output-dir");
+        assertThat(targetDir).exists();
+        jars = getFilesEndingWith(targetDir, ".jar");
+        assertThat(jars).hasSize(1);
+    }
+
+    @Test
     public void testPackageWorksWhenUberjarIsTrue()
             throws MavenInvocationException, IOException, InterruptedException {
         testDir = initProject("projects/uberjar-check", "projects/project-uberjar-true");
@@ -173,9 +195,25 @@ public class PackageIT extends MojoTestBase {
         assertZipEntriesCanBeOpenedAndClosed(runnerJar);
     }
 
-    private List<File> getFilesEndingWith(File dir, String suffix) {
-        final File[] files = dir.listFiles((d, name) -> name.endsWith(suffix));
-        return files != null ? Arrays.asList(files) : Collections.emptyList();
+    /**
+     * Tests that quarkus.index-dependency.* can be used for modules in a multimodule project
+     */
+    @Test
+    public void testQuarkusIndexDependencyOnLocalModule() throws Exception {
+        testDir = initProject("projects/quarkus-index-dependencies");
+
+        running = new RunningInvoker(testDir, false);
+        final MavenProcessInvocationResult result = running.execute(Collections.singletonList("package"),
+                Collections.singletonMap("QUARKUS_PACKAGE_TYPES", "thin-jar"));
+
+        assertThat(result.getProcess().waitFor()).isEqualTo(0);
+
+        final File targetDir = new File(testDir.getAbsoluteFile(), "runner" + File.separator + "target");
+        assertThat(getNumberOfFilesEndingWith(targetDir, ".jar")).isEqualTo(2);
+
+        final Path runnerJar = targetDir.toPath().resolve("quarkus-quickstart-multimodule-main-1.0-SNAPSHOT-runner.jar");
+        Assert.assertTrue("Runner jar " + runnerJar + " is missing", Files.exists(runnerJar));
+        assertZipEntriesCanBeOpenedAndClosed(runnerJar);
     }
 
     private int getNumberOfFilesEndingWith(File dir, String suffix) {

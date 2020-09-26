@@ -1,34 +1,32 @@
 package io.quarkus.agroal.runtime;
 
-import io.quarkus.arc.Arc;
-import io.quarkus.arc.runtime.BeanContainer;
-import io.quarkus.arc.runtime.BeanContainerListener;
+import java.util.function.Supplier;
+
+import io.agroal.api.AgroalDataSource;
+import io.quarkus.datasource.runtime.DataSourcesRuntimeConfig;
 import io.quarkus.runtime.annotations.Recorder;
 
 @Recorder
 public class AgroalRecorder {
 
-    public static final String DEFAULT_DATASOURCE_NAME = "<default>";
-
-    public BeanContainerListener addDataSource(
-            Class<? extends AbstractDataSourceProducer> dataSourceProducerClass,
-            AgroalBuildTimeConfig agroalBuildTimeConfig,
-            boolean disableSslSupport) {
-        return new BeanContainerListener() {
+    public Supplier<DataSourceSupport> dataSourceSupportSupplier(DataSourceSupport dataSourceSupport) {
+        return new Supplier<DataSourceSupport>() {
             @Override
-            public void created(BeanContainer beanContainer) {
-                AbstractDataSourceProducer producer = beanContainer.instance(dataSourceProducerClass);
-
-                producer.setBuildTimeConfig(agroalBuildTimeConfig);
-
-                if (disableSslSupport) {
-                    producer.disableSslSupport();
-                }
+            public DataSourceSupport get() {
+                return dataSourceSupport;
             }
         };
     }
 
-    public void configureRuntimeProperties(AgroalRuntimeConfig agroalRuntimeConfig) {
-        Arc.container().instance(AbstractDataSourceProducer.class).get().setRuntimeConfig(agroalRuntimeConfig);
+    public Supplier<AgroalDataSource> agroalDataSourceSupplier(String dataSourceName,
+            @SuppressWarnings("unused") DataSourcesRuntimeConfig dataSourcesRuntimeConfig) {
+        final AgroalDataSource agroalDataSource = DataSources.fromName(dataSourceName);
+        return new Supplier<AgroalDataSource>() {
+            @Override
+            public AgroalDataSource get() {
+                return agroalDataSource;
+            }
+        };
     }
+
 }

@@ -18,8 +18,10 @@ public class MySQLPoolProducerTest {
 
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
+            .withConfigurationResource("application-default-datasource.properties")
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
                     .addClasses(BeanUsingBareMySQLClient.class)
+                    .addClasses(BeanUsingMutinyMySQLClient.class)
                     .addClasses(BeanUsingAxleMySQLClient.class)
                     .addClasses(BeanUsingRXMySQLClient.class));
 
@@ -32,11 +34,15 @@ public class MySQLPoolProducerTest {
     @Inject
     BeanUsingRXMySQLClient beanUsingRx;
 
+    @Inject
+    BeanUsingMutinyMySQLClient beanUsingMutiny;
+
     @Test
-    public void testVertxInjection() throws Exception {
+    public void testVertxInjection() {
         beanUsingBare.verify()
                 .thenCompose(v -> beanUsingAxle.verify())
                 .thenCompose(v -> beanUsingRx.verify())
+                .thenCompose(v -> beanUsingMutiny.verify())
                 .toCompletableFuture()
                 .join();
     }
@@ -49,9 +55,7 @@ public class MySQLPoolProducerTest {
 
         public CompletionStage<Void> verify() {
             CompletableFuture<Void> cf = new CompletableFuture<>();
-            mysqlClient.query("SELECT 1", ar -> {
-                cf.complete(null);
-            });
+            mysqlClient.query("SELECT 1").execute(ar -> cf.complete(null));
             return cf;
         }
     }
@@ -60,10 +64,24 @@ public class MySQLPoolProducerTest {
     static class BeanUsingAxleMySQLClient {
 
         @Inject
+        io.vertx.mutiny.mysqlclient.MySQLPool mysqlClient;
+
+        public CompletionStage<Void> verify() {
+            return mysqlClient.query("SELECT 1").execute()
+                    .onItem().ignore().andContinueWithNull()
+                    .onFailure().recoverWithItem((Void) null)
+                    .subscribeAsCompletionStage();
+        }
+    }
+
+    @ApplicationScoped
+    static class BeanUsingMutinyMySQLClient {
+
+        @Inject
         io.vertx.axle.mysqlclient.MySQLPool mysqlClient;
 
         public CompletionStage<Void> verify() {
-            return mysqlClient.query("SELECT 1")
+            return mysqlClient.query("SELECT 1").execute()
                     .<Void> thenApply(rs -> null)
                     .exceptionally(t -> null);
         }
@@ -77,7 +95,7 @@ public class MySQLPoolProducerTest {
 
         public CompletionStage<Void> verify() {
             CompletableFuture<Void> cf = new CompletableFuture<>();
-            mysqlClient.rxQuery("SELECT 1")
+            mysqlClient.query("SELECT 1").rxExecute()
                     .ignoreElement()
                     .onErrorComplete()
                     .subscribe(() -> cf.complete(null));

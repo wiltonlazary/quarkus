@@ -24,12 +24,14 @@ import io.quarkus.builder.location.Location;
  * @author <a href="mailto:david.lloyd@redhat.com">David M. Lloyd</a>
  */
 public final class BuildContext {
+    private final ClassLoader classLoader;
     private final StepInfo stepInfo;
     private final Execution execution;
     private final AtomicInteger dependencies;
     private volatile boolean running;
 
-    BuildContext(final StepInfo stepInfo, final Execution execution) {
+    BuildContext(ClassLoader classLoader, final StepInfo stepInfo, final Execution execution) {
+        this.classLoader = classLoader;
         this.stepInfo = stepInfo;
         this.execution = execution;
         dependencies = new AtomicInteger(stepInfo.getDependencies());
@@ -187,9 +189,7 @@ public final class BuildContext {
      */
     public void note(Location location, String format, Object... args) {
         final List<Diagnostic> list = execution.getDiagnostics();
-        synchronized (list) {
-            list.add(new Diagnostic(Diagnostic.Level.NOTE, location, format, args));
-        }
+        list.add(new Diagnostic(Diagnostic.Level.NOTE, location, format, args));
     }
 
     /**
@@ -201,9 +201,7 @@ public final class BuildContext {
      */
     public void warn(Location location, String format, Object... args) {
         final List<Diagnostic> list = execution.getDiagnostics();
-        synchronized (list) {
-            list.add(new Diagnostic(Diagnostic.Level.WARN, location, format, args));
-        }
+        list.add(new Diagnostic(Diagnostic.Level.WARN, location, format, args));
     }
 
     /**
@@ -215,9 +213,7 @@ public final class BuildContext {
      */
     public void error(Location location, String format, Object... args) {
         final List<Diagnostic> list = execution.getDiagnostics();
-        synchronized (list) {
-            list.add(new Diagnostic(Diagnostic.Level.ERROR, location, format, args));
-        }
+        list.add(new Diagnostic(Diagnostic.Level.ERROR, location, format, args));
         execution.setErrorReported();
     }
 
@@ -275,17 +271,17 @@ public final class BuildContext {
         try {
             if (!execution.isErrorReported()) {
                 running = true;
+                ClassLoader old = Thread.currentThread().getContextClassLoader();
                 try {
+                    Thread.currentThread().setContextClassLoader(classLoader);
                     buildStep.execute(this);
                 } catch (Throwable t) {
                     final List<Diagnostic> list = execution.getDiagnostics();
-                    synchronized (list) {
-                        list.add(
-                                new Diagnostic(Diagnostic.Level.ERROR, t, null, "Build step %s threw an exception", buildStep));
-                    }
+                    list.add(new Diagnostic(Diagnostic.Level.ERROR, t, null, "Build step %s threw an exception", buildStep));
                     execution.setErrorReported();
                 } finally {
                     running = false;
+                    Thread.currentThread().setContextClassLoader(old);
                 }
             }
         } finally {

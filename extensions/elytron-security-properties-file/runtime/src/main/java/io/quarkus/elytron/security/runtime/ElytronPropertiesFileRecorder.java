@@ -1,7 +1,6 @@
 package io.quarkus.elytron.security.runtime;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -17,7 +16,6 @@ import java.util.function.Supplier;
 
 import org.jboss.logging.Logger;
 import org.wildfly.common.iteration.ByteIterator;
-import org.wildfly.security.WildFlyElytronProvider;
 import org.wildfly.security.auth.realm.LegacyPropertiesSecurityRealm;
 import org.wildfly.security.auth.realm.SimpleMapBackedSecurityRealm;
 import org.wildfly.security.auth.realm.SimpleRealmEntry;
@@ -36,6 +34,7 @@ import org.wildfly.security.password.spec.DigestPasswordSpec;
 
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
+import io.quarkus.runtime.util.ClassPathUtils;
 
 /**
  * The runtime security recorder class that provides methods for creating RuntimeValues for the deployment security objects.
@@ -44,7 +43,7 @@ import io.quarkus.runtime.annotations.Recorder;
 public class ElytronPropertiesFileRecorder {
     static final Logger log = Logger.getLogger(ElytronPropertiesFileRecorder.class);
 
-    private static final Provider[] PROVIDERS = new Provider[] { new WildFlyElytronProvider() };
+    private static final Provider[] PROVIDERS = new Provider[] { new WildFlyElytronPasswordProvider() };
 
     /**
      * Load the user.properties and roles.properties files into the {@linkplain SecurityRealm}
@@ -88,9 +87,19 @@ public class ElytronPropertiesFileRecorder {
                         throw new IllegalStateException(msg);
                     }
                     LegacyPropertiesSecurityRealm propsRealm = (LegacyPropertiesSecurityRealm) secRealm;
-                    try (InputStream usersStream = users.openStream(); InputStream rolesStream = roles.openStream()) {
-                        propsRealm.load(usersStream, rolesStream);
-                    }
+                    ClassPathUtils.consumeStream(users, usersStream -> {
+                        try {
+                            ClassPathUtils.consumeStream(roles, rolesStream -> {
+                                try {
+                                    propsRealm.load(usersStream, rolesStream);
+                                } catch (IOException e) {
+                                    throw new UncheckedIOException(e);
+                                }
+                            });
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
                 } catch (IOException e) {
                     throw new UncheckedIOException(e);
                 }
@@ -105,7 +114,8 @@ public class ElytronPropertiesFileRecorder {
      * @param config - the realm config
      * @throws Exception
      */
-    public Runnable loadRealm(RuntimeValue<SecurityRealm> realm, MPRealmConfig config) throws Exception {
+    public Runnable loadRealm(RuntimeValue<SecurityRealm> realm, MPRealmConfig config, MPRealmRuntimeConfig runtimeConfig)
+            throws Exception {
         return new Runnable() {
             @Override
             public void run() {
@@ -116,15 +126,15 @@ public class ElytronPropertiesFileRecorder {
                 }
                 SimpleMapBackedSecurityRealm memRealm = (SimpleMapBackedSecurityRealm) secRealm;
                 HashMap<String, SimpleRealmEntry> identityMap = new HashMap<>();
-                Map<String, String> userInfo = config.getUsers();
+                Map<String, String> userInfo = runtimeConfig.users;
                 log.debugf("UserInfoMap: %s%n", userInfo);
-                Map<String, String> roleInfo = config.getRoles();
+                Map<String, String> roleInfo = runtimeConfig.roles;
                 log.debugf("RoleInfoMap: %s%n", roleInfo);
                 for (Map.Entry<String, String> userPasswordEntry : userInfo.entrySet()) {
                     Password password;
                     String user = userPasswordEntry.getKey();
 
-                    if (config.plainText) {
+                    if (runtimeConfig.plainText) {
                         password = ClearPassword.createRaw(ClearPassword.ALGORITHM_CLEAR,
                                 userPasswordEntry.getValue().toCharArray());
                     } else {

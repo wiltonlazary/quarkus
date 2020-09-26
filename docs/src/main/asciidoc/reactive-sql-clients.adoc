@@ -11,8 +11,9 @@ include::./attributes.adoc[]
 The Reactive SQL Clients have a straightforward API focusing on scalability and low-overhead.
 Currently, the following database servers are supported:
 
+* DB2
 * PostgreSQL
-* MySQL
+* MariaDB/MySQL
 
 In this guide, you will learn how to implement a simple CRUD application exposing data stored in *PostgreSQL* over a RESTful API.
 
@@ -87,8 +88,20 @@ Otherwise, you can manually add this to the dependencies section of your `pom.xm
 </dependency>
 ----
 
-NOTE: In this guide, we will use the Axle API of the Reactive PostgreSQL Client.
-Read the link:vertx[Using Eclipse Vert.x] guide to understand the differences between the callback, RxJava and Axle based APIs.
+=== Mutiny
+
+Reactive REST endpoints in your application that return Uni or Multi need `Mutiny support for RESTEasy` extension (`io.quarkus:quarkus-resteasy-mutiny`) to work properly:
+
+[source,shell]
+----
+./mvnw quarkus:add-extension -Dextensions="resteasy-mutiny"
+----
+
+[TIP]
+====
+In this guide, we will use the Mutiny API of the Reactive PostgreSQL Client.
+If you're not familiar with Mutiny reactive types, read the link:getting-started-reactive#mutiny[Getting Started with Reactive guide] first.
+====
 
 === JSON Binding
 
@@ -114,20 +127,18 @@ Of course, this is only a requirement for this guide, not any application using 
 
 == Configuring
 
-The Reactive PostgreSQL Client can be configured with standard Quarkus datasource properties:
+The Reactive PostgreSQL Client can be configured with standard Quarkus datasource properties and a reactive URL:
 
 [source]
 .src/main/resources/application.properties
 ----
-quarkus.datasource.url=vertx-reactive:postgresql://localhost:5432/quarkus_test
+quarkus.datasource.db-kind=postgresql
 quarkus.datasource.username=quarkus_test
 quarkus.datasource.password=quarkus_test
+quarkus.datasource.reactive.url=postgresql://localhost:5432/quarkus_test
 ----
 
-IMPORTANT: The eagle eyes among you might have noticed the `url` prefix is different from usual JDBC urls.
-It is required to use the `vertx-reactive:` prefix otherwise the Reactive PostgreSQL Client extension will not use the `quarkus.datasource.url` config property.
-
-With that you may create your `FruitResource` skeleton and `@Inject` a `io.vertx.axle.pgclient.PgPool` instance:
+With that you may create your `FruitResource` skeleton and `@Inject` a `io.vertx.mutiny.pgclient.PgPool` instance:
 
 [source,java]
 .src/main/java/org/acme/vertx/FruitResource.java
@@ -138,7 +149,7 @@ With that you may create your `FruitResource` skeleton and `@Inject` a `io.vertx
 public class FruitResource {
 
     @Inject
-    io.vertx.axle.pgclient.PgPool client;
+    io.vertx.mutiny.pgclient.PgPool client;
 }
 ----
 
@@ -153,20 +164,19 @@ But for development we can simply drop and create the tables on startup, and the
 [source,java]
 .src/main/java/org/acme/vertx/FruitResource.java
 ----
-    @Inject
-    @ConfigProperty(name = "myapp.schema.create", defaultValue = "true") // <1>
-    boolean schemaCreate;
+@Inject
+@ConfigProperty(name = "myapp.schema.create", defaultValue = "true") // <1>
+boolean schemaCreate;
 
-    @PostConstruct
-    void config() {
-        if (schemaCreate) {
-            initdb();
-        }
+@PostConstruct
+void config() {
+    if (schemaCreate) {
+        initdb();
     }
+}
 
-    private void initdb() {
-        // TODO
-    }
+private void initdb() {
+    // TODO
 }
 ----
 
@@ -174,20 +184,26 @@ TIP: You may override the default value of the `myapp.schema.create` property in
 
 Almost ready!
 To initialize the DB in development mode, we will use the client simple `query` method.
-It returns a `CompletionStage` and thus can be composed to execute queries sequentially:
+It returns a `Uni` and thus can be composed to execute queries sequentially:
 
 [source,java]
 ----
-        client.query("DROP TABLE IF EXISTS fruits")
-                .thenCompose(r -> client.query("CREATE TABLE fruits (id SERIAL PRIMARY KEY, name TEXT NOT NULL)"))
-                .thenCompose(r -> client.query("INSERT INTO fruits (name) VALUES ('Orange')"))
-                .thenCompose(r -> client.query("INSERT INTO fruits (name) VALUES ('Pear')"))
-                .thenCompose(r -> client.query("INSERT INTO fruits (name) VALUES ('Apple')"))
-                .toCompletableFuture()
-                .join();
+client.query("DROP TABLE IF EXISTS fruits").execute()
+    .flatMap(r -> client.query("CREATE TABLE fruits (id SERIAL PRIMARY KEY, name TEXT NOT NULL)").execute())
+    .flatMap(r -> client.query("INSERT INTO fruits (name) VALUES ('Orange')").execute())
+    .flatMap(r -> client.query("INSERT INTO fruits (name) VALUES ('Pear')").execute())
+    .flatMap(r -> client.query("INSERT INTO fruits (name) VALUES ('Apple')").execute())
+    .await().indefinitely();
 ----
 
-NOTE: Wondering why we need to convert the result to `CompletableFuture` and block until the latest query is completed?
+[IMPORTANT]
+.Breaking Change in Quarkus 1.5
+====
+Vert.x 3.9, integrated in Quarkus 1.5, introduces a breaking change regarding the `query` methods.
+To retrieve the result you need to call `.execute()`.
+====
+
+NOTE: Wondering why we need block until the latest query is completed?
 This code is part of a `@PostConstruct` method and Quarkus invokes it synchronously.
 As a consequence, returning prematurely could lead to serving requests while the database is not ready yet.
 
@@ -204,24 +220,20 @@ To retrieve all the data, we will use the `query` method again:
 
 [source,java]
 ----
-CompletionStage<RowSet> rowSet = client.query("SELECT id, name FROM fruits ORDER BY name ASC");
+Uni<RowSet<Row>> rowSet = client.query("SELECT id, name FROM fruits ORDER BY name ASC").execute();
 ----
 
 When the operation completes, we will get a `RowSet` that has all the rows buffered in memory.
-As an `java.lang.Iterable<Row>`, it can be traversed with a _for-each_ loop:
+A `RowSet` is an `java.lang.Iterable<Row>` and thus can be converted to a `Multi`:
 
 [source,java]
 ----
-CompletionStage<List<Fruit>> fruits = rowSet.thenApply(pgRowSet -> {
-    List<Fruit> list = new ArrayList<>(pgRowSet.size());
-    for (Row row : pgRowSet) {
-        list.add(from(row));
-    }
-    return list;
-});
+Multi<Fruit> fruits = rowSet
+  .onItem().transformToMulti(set -> Multi.createFrom().iterable(set))
+  .onItem().transform(Fruit::from);
 ----
 
-The `from` method converts a `Row` instance to a `Fruit` instance.
+The `Fruit#from` method converts a `Row` instance to a `Fruit` instance.
 It is extracted as a convenience for the implementation of the other data management methods:
 
 [source,java]
@@ -237,15 +249,11 @@ Putting it all together, the `Fruit.findAll` method looks like:
 [source,java]
 .src/main/java/org/acme/vertx/Fruit.java
 ----
-    public static CompletionStage<List<Fruit>> findAll(PgPool client) {
-        return client.query("SELECT id, name FROM fruits ORDER BY name ASC").thenApply(pgRowSet -> {
-            List<Fruit> list = new ArrayList<>(pgRowSet.size());
-            for (Row row : pgRowSet) {
-                list.add(from(row));
-            }
-            return list;
-        });
-    }
+public static Multi<Fruit> findAll(PgPool client) {
+    return client.query("SELECT id, name FROM fruits ORDER BY name ASC").execute()
+            .onItem().transformToMulti(set -> Multi.createFrom().iterable(set))
+            .onItem().transform(Fruit::from);
+}
 ----
 
 And the endpoint to get all fruits from the backend:
@@ -254,10 +262,8 @@ And the endpoint to get all fruits from the backend:
 .src/main/java/org/acme/vertx/FruitResource.java
 ----
 @GET
-public CompletionStage<Response> get() {
-    return Fruit.findAll(client)
-            .thenApply(Response::ok)
-            .thenApply(ResponseBuilder::build);
+public Multi<Fruit> get() {
+    return Fruit.findAll(client);
 }
 ----
 
@@ -281,21 +287,21 @@ The Reactive PostgreSQL Client can also prepare queries and take parameters that
 
 [source,java]
 ----
-client.preparedQuery("SELECT name FROM fruits WHERE id = $1", Tuple.of(id))
+client.preparedQuery("SELECT id, name FROM fruits WHERE id = $1").execute(Tuple.of(id))
 ----
 
 TIP: The SQL string can refer to parameters by position, using $1, $2, ...etc.
 
-Like the simple `query` method, `preparedQuery` returns an instance of `CompletionStage<RowSet>`.
+Similar to the simple `query` method, `preparedQuery` returns an instance of `PreparedQuery<RowSet<Row>>`.
 Equipped with this tooling, we are able to safely use an `id` provided by the user to get the details of a particular fruit:
 
 [source,java]
 .src/main/java/org/acme/vertx/Fruit.java
 ----
-public static CompletionStage<Fruit> findById(PgPool client, Long id) {
-    return client.preparedQuery("SELECT id, name FROM fruits WHERE id = $1", Tuple.of(id)) // <1>
-            .thenApply(RowSet::iterator) // <2>
-            .thenApply(iterator -> iterator.hasNext() ? from(iterator.next()) : null); // <3>
+public static Uni<Fruit> findById(PgPool client, Long id) {
+    return client.preparedQuery("SELECT id, name FROM fruits WHERE id = $1").execute(Tuple.of(id)) // <1>
+            .onItem().transform(RowSet::iterator) // <2>
+            .onItem().transform(iterator -> iterator.hasNext() ? from(iterator.next()) : null); // <3>
 }
 ----
 <1> Create a `Tuple` to hold the prepared query parameters.
@@ -309,10 +315,10 @@ And in the JAX-RS resource:
 ----
 @GET
 @Path("{id}")
-public CompletionStage<Response> getSingle(@PathParam Long id) {
+public Uni<Response> getSingle(@PathParam Long id) {
     return Fruit.findById(client, id)
-            .thenApply(fruit -> fruit != null ? Response.ok(fruit) : Response.status(Status.NOT_FOUND)) // <1>
-            .thenApply(ResponseBuilder::build); // <2>
+            .onItem().transform(fruit -> fruit != null ? Response.ok(fruit) : Response.status(Status.NOT_FOUND)) // <1>
+            .onItem().transform(ResponseBuilder::build); // <2>
 }
 ----
 <1> Prepare a JAX-RS response with  either the `Fruit` instance if found or the `404` status code.
@@ -323,9 +329,9 @@ The same logic applies when saving a `Fruit`:
 [source,java]
 .src/main/java/org/acme/vertx/Fruit.java
 ----
-public CompletionStage<Long> save(PgPool client) {
-    return client.preparedQuery("INSERT INTO fruits (name) VALUES ($1) RETURNING (id)", Tuple.of(name))
-            .thenApply(pgRowSet -> pgRowSet.iterator().next().getLong("id"));
+public Uni<Long> save(PgPool client) {
+    return client.preparedQuery("INSERT INTO fruits (name) VALUES ($1) RETURNING (id)").execute(Tuple.of(name))
+            .onItem().transform(pgRowSet -> pgRowSet.iterator().next().getLong("id"));
 }
 ----
 
@@ -335,10 +341,10 @@ And in the web resource we handle the `POST` request:
 .src/main/java/org/acme/vertx/FruitResource.java
 ----
 @POST
-public CompletionStage<Response> create(Fruit fruit) {
+public Uni<Response> create(Fruit fruit) {
     return fruit.save(client)
-            .thenApply(id -> URI.create("/fruits/" + id))
-            .thenApply(uri -> Response.created(uri).build());
+            .onItem().transform(id -> URI.create("/fruits/" + id))
+            .onItem().transform(uri -> Response.created(uri).build());
 }
 ----
 
@@ -354,9 +360,9 @@ Let's use this to support removal of fruits in the database:
 [source,java]
 .src/main/java/org/acme/vertx/Fruit.java
 ----
-public static CompletionStage<Boolean> delete(PgPool client, Long id) {
-    return client.preparedQuery("DELETE FROM fruits WHERE id = $1", Tuple.of(id))
-            .thenApply(pgRowSet -> pgRowSet.rowCount() == 1); // <1>
+public static Uni<Boolean> delete(PgPool client, Long id) {
+    return client.preparedQuery("DELETE FROM fruits WHERE id = $1").execute(Tuple.of(id))
+            .onItem().transform(pgRowSet -> pgRowSet.rowCount() == 1); // <1>
 }
 ----
 <1> Inspect metadata to determine if a fruit has been actually deleted.
@@ -368,10 +374,10 @@ And to handle the HTTP `DELETE` method in the web resource:
 ----
 @DELETE
 @Path("{id}")
-public CompletionStage<Response> delete(@PathParam Long id) {
+public Uni<Response> delete(@PathParam Long id) {
     return Fruit.delete(client, id)
-            .thenApply(deleted -> deleted ? Status.NO_CONTENT : Status.NOT_FOUND)
-            .thenApply(status -> Response.status(status).build());
+            .onItem().transform(deleted -> deleted ? Status.NO_CONTENT : Status.NOT_FOUND)
+            .onItem().transform(status -> Response.status(status).build());
 }
 ----
 
@@ -465,18 +471,121 @@ Navigate to http://localhost:8080/fruits.html and read/create/delete some fruits
 |===
 |Database |Extension name |Pool class name
 
+|DB2
+|`quarkus-reactive-db2-client`
+|`io.vertx.mutiny.db2client.DB2Pool`
+
+|MariaDB/MySQL
+|`quarkus-reactive-mysql-client`
+|`io.vertx.mutiny.mysqlclient.MySQLPool`
+
 |PostgreSQL
 |`quarkus-reactive-pg-client`
-|`io.vertx.axle.pgclient.PgPool`
-
-|MySQL
-|`quarkus-reactive-mysql-client`
-|`io.vertx.axle.mysqlclient.MySQLPool`
+|`io.vertx.mutiny.pgclient.PgPool`
 |===
+
+== Transactions
+
+The reactive SQL clients support transactions.
+A transaction is started with `client.begin()` and terminated with either `tx.commit()` or `tx.rollback()`.
+All these operations are asynchronous:
+
+* `client.begin()` returns a `Uni<Transaction>`
+* `client.commit()` and `client.rollback()` return `Uni<Void>`
+
+Managing transactions in the reactive programming world can be cumbersome.
+Instead of writing repetitive and complex (thus error-prone!) code, you can use the `io.vertx.mutiny.sqlclient.SqlClientHelper`.
+
+The following snippet shows how to run 2 insertions in the same transaction:
+
+[source, java]
+----
+public static Uni<Void> insertTwoFruits(PgPool client, Fruit fruit1, Fruit fruit2) {
+    return SqlClientHelper.inTransactionUni(client, tx -> {
+        Uni<RowSet<Row>> insertOne = tx.preparedQuery("INSERT INTO fruits (name) VALUES ($1) RETURNING (id)")
+                .execute(Tuple.of(fruit1.name));
+        Uni<RowSet<Row>> insertTwo = tx.preparedQuery("INSERT INTO fruits (name) VALUES ($1) RETURNING (id)")
+                .execute(Tuple.of(fruit2.name));
+
+        return insertOne.and(insertTwo)
+                // Ignore the results (the two ids)
+                .onItem().ignore().andContinueWithNull();
+    });
+}
+----
+
+In this example, the transaction is automatically committed on success or rolled back on failure.
+
+You can also create dependent actions as follows:
+
+[source, java]
+----
+return SqlClientHelper.inTransactionUni(client, tx -> tx
+
+        .preparedQuery("INSERT INTO person (firstname,lastname) VALUES ($1,$2) RETURNING (id)")
+                .execute(Tuple.of(person.getFirstName(), person.getLastName()))
+
+        .onItem().transformToUni(id -> tx.preparedQuery("INSERT INTO addr (person_id,addrline1) VALUES ($1,$2)")
+                .execute(Tuple.of(id.iterator().next().getLong("id"), person.getLastName())))
+
+        .onItem().ignore().andContinueWithNull());
+----
+
+== UNIX Domain Socket connections
+
+The PostgreSQL and MariaDB/MySQL clients can be configured to connect to the server through a UNIX domain socket.
+
+First make sure that https://quarkus.io/guides/vertx#native-transport[native transport support] is enabled.
+
+Then configure the database connection url.
+This step depends on the database type.
+
+=== PostgreSQL
+
+PostgresSQL domain socket paths have the following form: `<directory>/.s.PGSQL.<port>`
+
+The database connection url must be configured so that:
+
+* the `host` is the `directory` in the socket path
+* the `port` is the `port` in the socket path
+
+Consider the following socket path: `/var/run/postgresql/.s.PGSQL.5432`.
+
+In `application.properties` add:
+
+[source,properties]
+----
+quarkus.datasource.reactive.url=postgresql://:5432/quarkus_test?host=/var/run/postgresql
+----
+
+=== MariaDB/MySQL
+
+The database connection url must be configured so that the `host` is the socket path.
+
+Consider the following socket path: `/var/run/mysqld/mysqld.sock`.
+
+In `application.properties` add:
+
+[source,properties]
+----
+quarkus.datasource.reactive.url=mysql:///quarkus_test?host=/var/run/mysqld/mysqld.sock
+----
 
 == Configuration Reference
 
-=== MySQL
+=== Common Datasource
+
+include::{generated-dir}/config/quarkus-datasource.adoc[opts=optional, leveloffset=+1]
+
+=== Reactive Datasource
+
+include::{generated-dir}/config/quarkus-reactive-datasource.adoc[opts=optional, leveloffset=+1]
+
+=== DB2
+
+include::{generated-dir}/config/quarkus-reactive-db2-client.adoc[opts=optional, leveloffset=+1]
+
+=== MariaDB/MySQL
 
 include::{generated-dir}/config/quarkus-reactive-mysql-client.adoc[opts=optional, leveloffset=+1]
 

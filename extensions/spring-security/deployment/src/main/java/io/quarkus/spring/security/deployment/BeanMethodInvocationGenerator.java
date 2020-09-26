@@ -25,7 +25,6 @@ import org.jboss.jandex.Type;
 import io.quarkus.arc.Arc;
 import io.quarkus.arc.ArcContainer;
 import io.quarkus.arc.InstanceHandle;
-import io.quarkus.deployment.util.HashUtil;
 import io.quarkus.gizmo.BranchResult;
 import io.quarkus.gizmo.BytecodeCreator;
 import io.quarkus.gizmo.ClassCreator;
@@ -35,6 +34,7 @@ import io.quarkus.gizmo.FieldDescriptor;
 import io.quarkus.gizmo.MethodCreator;
 import io.quarkus.gizmo.MethodDescriptor;
 import io.quarkus.gizmo.ResultHandle;
+import io.quarkus.runtime.util.HashUtil;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.spring.security.runtime.interceptor.check.AbstractBeanMethodSecurityCheck;
 
@@ -72,7 +72,9 @@ class BeanMethodInvocationGenerator {
         int parametersEndIndex = expression.indexOf(')');
         String[] beanMethodArgumentExpressions = {};
         if (parametersEndIndex > parametersStartIndex + 1) {
-            beanMethodArgumentExpressions = expression.substring(parametersStartIndex + 1, parametersEndIndex).split(",");
+            beanMethodArgumentExpressions = expression.substring(parametersStartIndex + 1, parametersEndIndex).trim()
+                    .split("\\s*,\\s*");
+            ;
         }
         /*
          * We need to make sure the cache key contains the both the expression and the parameter types of the method

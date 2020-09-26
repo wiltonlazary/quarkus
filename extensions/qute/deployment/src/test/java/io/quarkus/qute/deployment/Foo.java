@@ -1,12 +1,17 @@
 package io.quarkus.qute.deployment;
 
-class Foo {
+public class Foo {
 
     public String name;
 
     public Long age;
 
     public Charlie charlie;
+
+    // ValueResolverGenerator.DEFAULT_PRIORITY
+    public String pong() {
+        return "foo";
+    }
 
     public Foo(String name, Long age) {
         this.name = name;

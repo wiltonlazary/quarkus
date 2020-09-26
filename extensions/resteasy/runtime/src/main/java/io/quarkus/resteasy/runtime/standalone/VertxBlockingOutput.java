@@ -2,13 +2,17 @@ package io.quarkus.resteasy.runtime.standalone;
 
 import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import org.jboss.logging.Logger;
 
 import io.netty.buffer.ByteBuf;
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Context;
 import io.vertx.core.Handler;
 import io.vertx.core.buffer.Buffer;
+import io.vertx.core.http.HttpConnection;
 import io.vertx.core.http.HttpServerRequest;
 
 public class VertxBlockingOutput implements VertxOutput {
@@ -89,6 +93,36 @@ public class VertxBlockingOutput implements VertxOutput {
         }
     }
 
+    @Override
+    public CompletionStage<Void> writeNonBlocking(ByteBuf data, boolean last) {
+        CompletableFuture<Void> ret = new CompletableFuture<>();
+        if (last && data == null) {
+            request.response().end(handler(ret));
+            return ret;
+        }
+        Buffer buffer = createBuffer(data);
+        if (last) {
+            request.response().end(buffer, handler(ret));
+        } else {
+            request.response().write(buffer, handler(ret));
+        }
+        //no need to free 'data', the write will handle this
+        return ret;
+    }
+
+    private <T extends Throwable> void rethrow(Throwable x) throws T {
+        throw (T) x;
+    }
+
+    private Handler<AsyncResult<Void>> handler(CompletableFuture<Void> ret) {
+        return res -> {
+            if (res.succeeded())
+                ret.complete(null);
+            else
+                ret.completeExceptionally(res.cause());
+        };
+    }
+
     private void awaitWriteable() throws IOException {
         if (first) {
             first = false;
@@ -111,7 +145,10 @@ public class VertxBlockingOutput implements VertxOutput {
                     @Override
                     public void handle(Void event) {
                         if (waitingForDrain) {
-                            request.connection().notifyAll();
+                            HttpConnection connection = request.connection();
+                            synchronized (connection) {
+                                connection.notifyAll();
+                            }
                         }
                     }
                 };

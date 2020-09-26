@@ -1,9 +1,6 @@
 package io.quarkus.deployment;
 
 import java.io.Closeable;
-import java.nio.file.FileSystem;
-import java.nio.file.FileSystems;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -19,6 +16,7 @@ import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
 import org.jboss.logging.Logger;
 
 import io.quarkus.bootstrap.model.AppModel;
+import io.quarkus.bootstrap.model.PathsCollection;
 import io.quarkus.builder.BuildChain;
 import io.quarkus.builder.BuildChainBuilder;
 import io.quarkus.builder.BuildExecutionBuilder;
@@ -31,10 +29,14 @@ import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
 import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.LiveReloadBuildItem;
+import io.quarkus.deployment.builditem.QuarkusBuildCloseablesBuildItem;
+import io.quarkus.deployment.builditem.RawCommandLineArgumentsBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
 import io.quarkus.deployment.pkg.builditem.BuildSystemTargetBuildItem;
 import io.quarkus.deployment.pkg.builditem.CurateOutcomeBuildItem;
+import io.quarkus.deployment.pkg.builditem.DeploymentResultBuildItem;
 import io.quarkus.runtime.LaunchMode;
+import io.quarkus.runtime.util.JavaVersionUtil;
 
 public class QuarkusAugmentor {
 
@@ -42,11 +44,11 @@ public class QuarkusAugmentor {
 
     private final ClassLoader classLoader;
     private final ClassLoader deploymentClassLoader;
-    private final Path root;
+    private final PathsCollection root;
     private final Set<Class<? extends BuildItem>> finalResults;
     private final List<Consumer<BuildChainBuilder>> buildChainCustomizers;
     private final LaunchMode launchMode;
-    private final List<Path> additionalApplicationArchives;
+    private final List<PathsCollection> additionalApplicationArchives;
     private final Collection<Path> excludedFromIndexing;
     private final LiveReloadBuildItem liveReloadBuildItem;
     private final Properties buildSystemProperties;
@@ -54,6 +56,7 @@ public class QuarkusAugmentor {
     private final AppModel effectiveModel;
     private final String baseName;
     private final Consumer<ConfigBuilder> configCustomizer;
+    private final boolean rebuild;
 
     QuarkusAugmentor(Builder builder) {
         this.classLoader = builder.classLoader;
@@ -70,17 +73,23 @@ public class QuarkusAugmentor {
         this.baseName = builder.baseName;
         this.configCustomizer = builder.configCustomizer;
         this.deploymentClassLoader = builder.deploymentClassLoader;
+        this.rebuild = builder.rebuild;
     }
 
     public BuildResult run() throws Exception {
+        if (!JavaVersionUtil.isJava11OrHigher()) {
+            log.warn("Using Java versions older than 11 to build"
+                    + " Quarkus applications is deprecated and will be disallowed in a future release!");
+        }
         long time = System.currentTimeMillis();
         log.debug("Beginning Quarkus augmentation");
         ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
-        FileSystem rootFs = null;
+        QuarkusBuildCloseablesBuildItem buildCloseables = new QuarkusBuildCloseablesBuildItem();
         try {
             Thread.currentThread().setContextClassLoader(deploymentClassLoader);
 
             final BuildChainBuilder chainBuilder = BuildChain.builder();
+            chainBuilder.setClassLoader(deploymentClassLoader);
 
             //TODO: we load everything from the deployment class loader
             //this allows the deployment config (application.properties) to be loaded, but in theory could result
@@ -95,9 +104,11 @@ public class QuarkusAugmentor {
             chainBuilder.loadProviders(classLoader);
 
             chainBuilder
+                    .addInitial(QuarkusBuildCloseablesBuildItem.class)
                     .addInitial(DeploymentClassLoaderBuildItem.class)
                     .addInitial(ArchiveRootBuildItem.class)
                     .addInitial(ShutdownContextBuildItem.class)
+                    .addInitial(RawCommandLineArgumentsBuildItem.class)
                     .addInitial(LaunchModeBuildItem.class)
                     .addInitial(LiveReloadBuildItem.class)
                     .addInitial(AdditionalApplicationArchiveBuildItem.class)
@@ -107,30 +118,35 @@ public class QuarkusAugmentor {
                 chainBuilder.addFinal(i);
             }
             chainBuilder.addFinal(GeneratedClassBuildItem.class)
-                    .addFinal(GeneratedResourceBuildItem.class);
+                    .addFinal(GeneratedResourceBuildItem.class)
+                    .addFinal(DeploymentResultBuildItem.class);
 
             for (Consumer<BuildChainBuilder> i : buildChainCustomizers) {
                 i.accept(chainBuilder);
             }
 
-            BuildChain chain = chainBuilder
-                    .build();
-            if (!Files.isDirectory(root)) {
-                rootFs = FileSystems.newFileSystem(root, null);
+            final ArchiveRootBuildItem.Builder rootBuilder = ArchiveRootBuildItem.builder();
+            if (root != null) {
+                rootBuilder.addArchiveRoots(root);
             }
+            rootBuilder.setExcludedFromIndexing(excludedFromIndexing);
+
+            BuildChain chain = chainBuilder.build();
             BuildExecutionBuilder execBuilder = chain.createExecutionBuilder("main")
+                    .produce(buildCloseables)
                     .produce(liveReloadBuildItem)
-                    .produce(new ArchiveRootBuildItem(root, rootFs == null ? root : rootFs.getPath("/"), excludedFromIndexing))
+                    .produce(rootBuilder.build(buildCloseables))
                     .produce(new ShutdownContextBuildItem())
+                    .produce(new RawCommandLineArgumentsBuildItem())
                     .produce(new LaunchModeBuildItem(launchMode))
-                    .produce(new BuildSystemTargetBuildItem(targetDir, baseName))
+                    .produce(new BuildSystemTargetBuildItem(targetDir, baseName, rebuild,
+                            buildSystemProperties == null ? new Properties() : buildSystemProperties))
                     .produce(new DeploymentClassLoaderBuildItem(deploymentClassLoader))
                     .produce(new CurateOutcomeBuildItem(effectiveModel));
-            for (Path i : additionalApplicationArchives) {
+            for (PathsCollection i : additionalApplicationArchives) {
                 execBuilder.produce(new AdditionalApplicationArchiveBuildItem(i));
             }
-            BuildResult buildResult = execBuilder
-                    .execute();
+            BuildResult buildResult = execBuilder.execute();
             String message = "Quarkus augmentation completed in " + (System.currentTimeMillis() - time) + "ms";
             if (launchMode == LaunchMode.NORMAL) {
                 log.info(message);
@@ -140,12 +156,6 @@ public class QuarkusAugmentor {
             }
             return buildResult;
         } finally {
-            if (rootFs != null) {
-                try {
-                    rootFs.close();
-                } catch (Exception e) {
-                }
-            }
             try {
                 ConfigProviderResolver.instance()
                         .releaseConfig(ConfigProviderResolver.instance().getConfig(deploymentClassLoader));
@@ -156,6 +166,7 @@ public class QuarkusAugmentor {
                 ((Closeable) deploymentClassLoader).close();
             }
             Thread.currentThread().setContextClassLoader(originalClassLoader);
+            buildCloseables.close();
         }
     }
 
@@ -165,10 +176,11 @@ public class QuarkusAugmentor {
 
     public static final class Builder {
 
-        List<Path> additionalApplicationArchives = new ArrayList<>();
+        boolean rebuild;
+        List<PathsCollection> additionalApplicationArchives = new ArrayList<>();
         Collection<Path> excludedFromIndexing = Collections.emptySet();
         ClassLoader classLoader;
-        Path root;
+        PathsCollection root;
         Path targetDir;
         Set<Class<? extends BuildItem>> finalResults = new HashSet<>();
         private final List<Consumer<BuildChainBuilder>> buildChainCustomizers = new ArrayList<>();
@@ -186,11 +198,11 @@ public class QuarkusAugmentor {
             return this;
         }
 
-        public List<Path> getAdditionalApplicationArchives() {
+        public List<PathsCollection> getAdditionalApplicationArchives() {
             return additionalApplicationArchives;
         }
 
-        public Builder addAdditionalApplicationArchive(Path archive) {
+        public Builder addAdditionalApplicationArchive(PathsCollection archive) {
             this.additionalApplicationArchives.add(archive);
             return this;
         }
@@ -218,7 +230,7 @@ public class QuarkusAugmentor {
             return this;
         }
 
-        public Path getRoot() {
+        public PathsCollection getRoot() {
             return root;
         }
 
@@ -227,7 +239,7 @@ public class QuarkusAugmentor {
             return this;
         }
 
-        public Builder setRoot(Path root) {
+        public Builder setRoot(PathsCollection root) {
             this.root = root;
             return this;
         }
@@ -247,6 +259,11 @@ public class QuarkusAugmentor {
 
         public Builder setBuildSystemProperties(final Properties buildSystemProperties) {
             this.buildSystemProperties = buildSystemProperties;
+            return this;
+        }
+
+        public Builder setRebuild(boolean rebuild) {
+            this.rebuild = rebuild;
             return this;
         }
 

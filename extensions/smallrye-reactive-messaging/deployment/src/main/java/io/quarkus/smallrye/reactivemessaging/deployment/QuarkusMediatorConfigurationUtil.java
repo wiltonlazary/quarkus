@@ -1,12 +1,14 @@
 package io.quarkus.smallrye.reactivemessaging.deployment;
 
-import static io.quarkus.smallrye.reactivemessaging.deployment.DotNames.ACKNOWLEDGMENT;
-import static io.quarkus.smallrye.reactivemessaging.deployment.DotNames.BROADCAST;
-import static io.quarkus.smallrye.reactivemessaging.deployment.DotNames.INCOMING;
-import static io.quarkus.smallrye.reactivemessaging.deployment.DotNames.MERGE;
-import static io.quarkus.smallrye.reactivemessaging.deployment.DotNames.OUTGOING;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.ACKNOWLEDGMENT;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.BLOCKING;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.BROADCAST;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.INCOMING;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.MERGE;
+import static io.quarkus.smallrye.reactivemessaging.deployment.ReactiveMessagingDotNames.OUTGOING;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.eclipse.microprofile.reactive.messaging.Acknowledgment;
 import org.jboss.jandex.AnnotationInstance;
@@ -21,6 +23,7 @@ import io.quarkus.smallrye.reactivemessaging.runtime.QuarkusMediatorConfiguratio
 import io.smallrye.reactive.messaging.Invoker;
 import io.smallrye.reactive.messaging.MediatorConfigurationSupport;
 import io.smallrye.reactive.messaging.Shape;
+import io.smallrye.reactive.messaging.annotations.Blocking;
 import io.smallrye.reactive.messaging.annotations.Merge;
 
 final class QuarkusMediatorConfigurationUtil {
@@ -56,21 +59,22 @@ final class QuarkusMediatorConfigurationUtil {
         }
         configuration.setParameterTypes(parameterTypes);
 
-        String incomingValue = getValue(methodInfo, INCOMING);
-        configuration.setIncoming(incomingValue);
+        List<String> incomingValues = getValues(methodInfo, INCOMING);
+        configuration.setIncomings(incomingValues);
         String outgoingValue = getValue(methodInfo, OUTGOING);
         configuration.setOutgoing(outgoingValue);
 
-        Shape shape = mediatorConfigurationSupport.determineShape(incomingValue, outgoingValue);
+        Shape shape = mediatorConfigurationSupport.determineShape(incomingValues, outgoingValue);
         configuration.setShape(shape);
-        Acknowledgment.Strategy acknowledgment = mediatorConfigurationSupport.processSuppliedAcknowledgement(incomingValue,
-                () -> {
-                    AnnotationInstance instance = methodInfo.annotation(ACKNOWLEDGMENT);
-                    if (instance != null) {
-                        return Acknowledgment.Strategy.valueOf(instance.value().asEnum());
-                    }
-                    return null;
-                });
+        Acknowledgment.Strategy acknowledgment = mediatorConfigurationSupport
+                .processSuppliedAcknowledgement(incomingValues,
+                        () -> {
+                            AnnotationInstance instance = methodInfo.annotation(ACKNOWLEDGMENT);
+                            if (instance != null) {
+                                return Acknowledgment.Strategy.valueOf(instance.value().asEnum());
+                            }
+                            return null;
+                        });
         configuration.setAcknowledgment(acknowledgment);
 
         MediatorConfigurationSupport.ValidationOutput validationOutput = mediatorConfigurationSupport.validate(shape,
@@ -89,7 +93,7 @@ final class QuarkusMediatorConfigurationUtil {
             configuration.setAcknowledgment(acknowledgment);
         }
 
-        configuration.setMerge(mediatorConfigurationSupport.processMerge(incomingValue, () -> {
+        configuration.setMerge(mediatorConfigurationSupport.processMerge(incomingValues, () -> {
             AnnotationInstance instance = methodInfo.annotation(MERGE);
             if (instance != null) {
                 AnnotationValue value = instance.value();
@@ -112,6 +116,19 @@ final class QuarkusMediatorConfigurationUtil {
             }
             return null;
         }));
+
+        AnnotationInstance blockingAnnotation = methodInfo.annotation(BLOCKING);
+        if (blockingAnnotation != null) {
+            mediatorConfigurationSupport.validateBlocking(validationOutput);
+            configuration.setBlocking(true);
+            AnnotationValue ordered = blockingAnnotation.value("ordered");
+            configuration.setBlockingExecutionOrdered(ordered == null || ordered.asBoolean());
+            String poolName;
+            if (blockingAnnotation.value() != null &&
+                    !(poolName = blockingAnnotation.value().asString()).equals(Blocking.DEFAULT_WORKER_POOL)) {
+                configuration.setWorkerPoolName(poolName);
+            }
+        }
 
         return configuration;
     }
@@ -165,6 +182,12 @@ final class QuarkusMediatorConfigurationUtil {
         return value;
     }
 
+    private static List<String> getValues(MethodInfo methodInfo, DotName dotName) {
+        return methodInfo.annotations().stream().filter(ai -> ai.name().equals(dotName))
+                .map(ai -> ai.value().asString())
+                .collect(Collectors.toList());
+    }
+
     private static String fullMethodName(MethodInfo methodInfo) {
         return methodInfo.declaringClass() + "#" + methodInfo.name();
     }
@@ -202,7 +225,8 @@ final class QuarkusMediatorConfigurationUtil {
         }
     }
 
-    private static class AlwaysInvalidIndexGenericTypeAssignable implements MediatorConfigurationSupport.GenericTypeAssignable {
+    private static class AlwaysInvalidIndexGenericTypeAssignable
+            implements MediatorConfigurationSupport.GenericTypeAssignable {
 
         @Override
         public Result check(Class<?> target, int index) {

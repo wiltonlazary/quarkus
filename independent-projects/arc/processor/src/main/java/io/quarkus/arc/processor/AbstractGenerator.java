@@ -13,6 +13,12 @@ abstract class AbstractGenerator {
     static final String UNDERSCORE = "_";
     static final String SYNTHETIC_SUFFIX = "Synthetic";
 
+    protected final boolean generateSources;
+
+    public AbstractGenerator(boolean generateSources) {
+        this.generateSources = generateSources;
+    }
+
     /**
      * Create a generated bean name from a bean package. When bean is located
      * in a default package (i.e. a classpath root), the target package name
@@ -83,8 +89,8 @@ abstract class AbstractGenerator {
             }
         }
         String packageName = DotNames.packageName(providerTypeName);
-        if (packageName.isEmpty() || packageName.startsWith("java.")) {
-            // It is not possible to place a class in a JDK package or in default package
+        if (packageName.startsWith("java.")) {
+            // It is not possible to place a class in a JDK package
             packageName = DEFAULT_PACKAGE;
         }
         return packageName;

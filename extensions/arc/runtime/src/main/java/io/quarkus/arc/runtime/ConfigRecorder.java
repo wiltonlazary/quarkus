@@ -10,6 +10,8 @@ import org.eclipse.microprofile.config.Config;
 import org.eclipse.microprofile.config.ConfigProvider;
 
 import io.quarkus.runtime.annotations.Recorder;
+import io.smallrye.config.ConfigMappings;
+import io.smallrye.config.SmallRyeConfig;
 
 /**
  * @author Martin Kouba
@@ -37,10 +39,17 @@ public class ConfigRecorder {
                                 "No config value of type " + entry.getValue() + " exists for: " + entry.getKey());
                     }
                 } catch (IllegalArgumentException e) {
-                    throw new DeploymentException(e);
+                    throw new DeploymentException(
+                            "Failed to load config value of type " + entry.getValue() + " for: " + entry.getKey(), e);
                 }
             }
         }
+    }
+
+    public void registerConfigMappings(final Set<ConfigMappings.ConfigMappingWithPrefix> configMappingsWithPrefix)
+            throws Exception {
+        SmallRyeConfig config = (SmallRyeConfig) ConfigProvider.getConfig();
+        config.getConfigMappings().registerConfigMappings(config, configMappingsWithPrefix);
     }
 
     private Class<?> load(String className, ClassLoader cl) {
@@ -63,11 +72,12 @@ public class ConfigRecorder {
                 return char.class;
             case "void":
                 return void.class;
-        }
-        try {
-            return Class.forName(className, true, cl);
-        } catch (ClassNotFoundException e) {
-            throw new IllegalStateException("Unable to load the config property type: " + className, e);
+            default:
+                try {
+                    return Class.forName(className, true, cl);
+                } catch (ClassNotFoundException e) {
+                    throw new IllegalStateException("Unable to load the config property type: " + className, e);
+                }
         }
     }
 

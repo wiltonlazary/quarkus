@@ -1,5 +1,9 @@
 package io.quarkus.runner.bootstrap;
 
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -10,7 +14,9 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.eclipse.microprofile.config.spi.ConfigProviderResolver;
+import org.jboss.logging.Logger;
 
+import io.quarkus.bootstrap.BootstrapDebug;
 import io.quarkus.bootstrap.app.AdditionalDependency;
 import io.quarkus.bootstrap.app.ArtifactResult;
 import io.quarkus.bootstrap.app.AugmentAction;
@@ -26,13 +32,16 @@ import io.quarkus.builder.item.BuildItem;
 import io.quarkus.deployment.ExtensionLoader;
 import io.quarkus.deployment.QuarkusAugmentor;
 import io.quarkus.deployment.builditem.ApplicationClassNameBuildItem;
-import io.quarkus.deployment.builditem.BytecodeTransformerBuildItem;
 import io.quarkus.deployment.builditem.ConfigDescriptionBuildItem;
 import io.quarkus.deployment.builditem.GeneratedClassBuildItem;
+import io.quarkus.deployment.builditem.GeneratedFileSystemResourceHandledBuildItem;
 import io.quarkus.deployment.builditem.GeneratedResourceBuildItem;
 import io.quarkus.deployment.builditem.LaunchModeBuildItem;
 import io.quarkus.deployment.builditem.LiveReloadBuildItem;
+import io.quarkus.deployment.builditem.MainClassBuildItem;
+import io.quarkus.deployment.builditem.RawCommandLineArgumentsBuildItem;
 import io.quarkus.deployment.builditem.ShutdownContextBuildItem;
+import io.quarkus.deployment.builditem.TransformedClassesBuildItem;
 import io.quarkus.deployment.pkg.builditem.ArtifactResultBuildItem;
 import io.quarkus.deployment.pkg.builditem.JarBuildItem;
 import io.quarkus.deployment.pkg.builditem.NativeImageBuildItem;
@@ -44,6 +53,13 @@ import io.quarkus.runtime.configuration.ProfileManager;
  */
 public class AugmentActionImpl implements AugmentAction {
 
+    private static final Logger log = Logger.getLogger(AugmentActionImpl.class);
+
+    private static final Class[] NON_NORMAL_MODE_OUTPUTS = { GeneratedClassBuildItem.class,
+            GeneratedResourceBuildItem.class, ApplicationClassNameBuildItem.class,
+            MainClassBuildItem.class, GeneratedFileSystemResourceHandledBuildItem.class,
+            TransformedClassesBuildItem.class };
+
     private final QuarkusBootstrap quarkusBootstrap;
     private final CuratedApplication curatedApplication;
     private final LaunchMode launchMode;
@@ -52,7 +68,7 @@ public class AugmentActionImpl implements AugmentAction {
     /**
      * A map that is shared between all re-runs of the same augment instance. This is
      * only really relevant in dev mode, however it is present in all modes for consistency.
-     * 
+     *
      */
     private final Map<Class<?>, Object> reloadContext = new ConcurrentHashMap<>();
 
@@ -70,21 +86,42 @@ public class AugmentActionImpl implements AugmentAction {
 
     @Override
     public AugmentResult createProductionApplication() {
-        try {
-            if (launchMode != LaunchMode.NORMAL) {
-                throw new IllegalStateException("Can only create a production application when using NORMAL launch mode");
-            }
-            BuildResult result = runAugment(true, Collections.emptySet(), ArtifactResultBuildItem.class);
-            JarBuildItem jarBuildItem = result.consumeOptional(JarBuildItem.class);
-            NativeImageBuildItem nativeImageBuildItem = result.consumeOptional(NativeImageBuildItem.class);
-            return new AugmentResult(result.consumeMulti(ArtifactResultBuildItem.class).stream()
-                    .map(a -> new ArtifactResult(a.getPath(), a.getType(), a.getAdditionalPaths()))
-                    .collect(Collectors.toList()),
-                    jarBuildItem != null ? jarBuildItem.toJarResult() : null,
-                    nativeImageBuildItem != null ? nativeImageBuildItem.getPath() : null);
-        } finally {
-            curatedApplication.close();
+        if (launchMode != LaunchMode.NORMAL) {
+            throw new IllegalStateException("Can only create a production application when using NORMAL launch mode");
         }
+        ClassLoader classLoader = curatedApplication.createDeploymentClassLoader();
+        BuildResult result = runAugment(true, Collections.emptySet(), classLoader, ArtifactResultBuildItem.class);
+
+        String debugSourcesDir = BootstrapDebug.DEBUG_SOURCES_DIR;
+        if (debugSourcesDir != null) {
+            for (GeneratedClassBuildItem i : result.consumeMulti(GeneratedClassBuildItem.class)) {
+                try {
+                    if (i.getSource() != null) {
+                        File debugPath = new File(debugSourcesDir);
+                        if (!debugPath.exists()) {
+                            debugPath.mkdir();
+                        }
+                        File sourceFile = new File(debugPath, i.getName() + ".zig");
+                        sourceFile.getParentFile().mkdirs();
+                        Files.write(sourceFile.toPath(), i.getSource().getBytes(StandardCharsets.UTF_8),
+                                StandardOpenOption.CREATE);
+                        log.infof("Wrote source: %s", sourceFile.getAbsolutePath());
+                    } else {
+                        log.infof("Source not available: %s", i.getName());
+                    }
+                } catch (Exception t) {
+                    log.errorf(t, "Failed to write debug source file: %s", i.getName());
+                }
+            }
+        }
+
+        JarBuildItem jarBuildItem = result.consumeOptional(JarBuildItem.class);
+        NativeImageBuildItem nativeImageBuildItem = result.consumeOptional(NativeImageBuildItem.class);
+        return new AugmentResult(result.consumeMulti(ArtifactResultBuildItem.class).stream()
+                .map(a -> new ArtifactResult(a.getPath(), a.getType(), a.getAdditionalPaths()))
+                .collect(Collectors.toList()),
+                jarBuildItem != null ? jarBuildItem.toJarResult() : null,
+                nativeImageBuildItem != null ? nativeImageBuildItem.getPath() : null);
     }
 
     @Override
@@ -92,18 +129,22 @@ public class AugmentActionImpl implements AugmentAction {
         if (launchMode == LaunchMode.NORMAL) {
             throw new IllegalStateException("Cannot launch a runtime application with NORMAL launch mode");
         }
-        BuildResult result = runAugment(true, Collections.emptySet(), GeneratedClassBuildItem.class,
-                GeneratedResourceBuildItem.class, BytecodeTransformerBuildItem.class, ApplicationClassNameBuildItem.class);
+        ClassLoader classLoader = curatedApplication.createDeploymentClassLoader();
+        @SuppressWarnings("unchecked")
+        BuildResult result = runAugment(true, Collections.emptySet(), classLoader, NON_NORMAL_MODE_OUTPUTS);
         return new StartupActionImpl(curatedApplication, result);
     }
 
     @Override
-    public StartupActionImpl reloadExistingApplication(Set<String> changedResources) {
+    public StartupActionImpl reloadExistingApplication(boolean hasStartedSuccessfully, Set<String> changedResources) {
         if (launchMode != LaunchMode.DEVELOPMENT) {
             throw new IllegalStateException("Only application with launch mode DEVELOPMENT can restart");
         }
-        BuildResult result = runAugment(false, changedResources, GeneratedClassBuildItem.class,
-                GeneratedResourceBuildItem.class, BytecodeTransformerBuildItem.class, ApplicationClassNameBuildItem.class);
+        ClassLoader classLoader = curatedApplication.createDeploymentClassLoader();
+
+        @SuppressWarnings("unchecked")
+        BuildResult result = runAugment(!hasStartedSuccessfully, changedResources, classLoader, NON_NORMAL_MODE_OUTPUTS);
+
         return new StartupActionImpl(curatedApplication, result);
     }
 
@@ -123,6 +164,7 @@ public class AugmentActionImpl implements AugmentAction {
             Thread.currentThread().setContextClassLoader(classLoader);
 
             final BuildChainBuilder chainBuilder = BuildChain.builder();
+            chainBuilder.setClassLoader(classLoader);
 
             ExtensionLoader.loadStepsFrom(classLoader).accept(chainBuilder);
             chainBuilder.loadProviders(classLoader);
@@ -134,6 +176,7 @@ public class AugmentActionImpl implements AugmentAction {
                     .addInitial(ShutdownContextBuildItem.class)
                     .addInitial(LaunchModeBuildItem.class)
                     .addInitial(LiveReloadBuildItem.class)
+                    .addInitial(RawCommandLineArgumentsBuildItem.class)
                     .addFinal(ConfigDescriptionBuildItem.class);
             chainBuild.accept(chainBuilder);
 
@@ -142,6 +185,7 @@ public class AugmentActionImpl implements AugmentAction {
             BuildExecutionBuilder execBuilder = chain.createExecutionBuilder("main")
                     .produce(new LaunchModeBuildItem(launchMode))
                     .produce(new ShutdownContextBuildItem())
+                    .produce(new RawCommandLineArgumentsBuildItem())
                     .produce(new LiveReloadBuildItem());
             executionBuild.accept(execBuilder);
             return execBuilder
@@ -158,7 +202,8 @@ public class AugmentActionImpl implements AugmentAction {
         }
     }
 
-    private BuildResult runAugment(boolean firstRun, Set<String> changedResources, Class<? extends BuildItem>... finalOutputs) {
+    private BuildResult runAugment(boolean firstRun, Set<String> changedResources, ClassLoader deploymentClassLoader,
+            Class<? extends BuildItem>... finalOutputs) {
         ClassLoader old = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(curatedApplication.getAugmentClassLoader());
@@ -171,7 +216,7 @@ public class AugmentActionImpl implements AugmentAction {
                     .setClassLoader(classLoader)
                     .addFinal(ApplicationClassNameBuildItem.class)
                     .setTargetDir(quarkusBootstrap.getTargetDirectory())
-                    .setDeploymentClassLoader(curatedApplication.createDeploymentClassLoader())
+                    .setDeploymentClassLoader(deploymentClassLoader)
                     .setBuildSystemProperties(quarkusBootstrap.getBuildSystemProperties())
                     .setEffectiveModel(curatedApplication.getAppModel());
             if (quarkusBootstrap.getBaseName() != null) {
@@ -179,6 +224,7 @@ public class AugmentActionImpl implements AugmentAction {
             }
 
             builder.setLaunchMode(launchMode);
+            builder.setRebuild(quarkusBootstrap.isRebuild());
             if (firstRun) {
                 builder.setLiveReloadState(new LiveReloadBuildItem(false, Collections.emptySet(), reloadContext));
             } else {

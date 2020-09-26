@@ -21,7 +21,7 @@ To complete this guide, you need:
 * less than 15 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 * Some familiarity with the Spring Web extension
 
 
@@ -51,6 +51,32 @@ cd spring-security-quickstart
 
 This command generates a Maven project with a REST endpoint and imports the `spring-web`, `spring-security` and `security-properties-file` extensions.
 
+If you already have your Quarkus project configured, you can add the `spring-web`, `spring-security` and `security-properties-file` extensions
+to your project by running the following command in your project base directory:
+
+[source,bash]
+----
+./mvnw quarkus:add-extension -Dextensions="spring-web, spring-security, quarkus-elytron-security-properties-file"
+----
+
+This will add the following to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-spring-web</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-spring-security</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-elytron-security-properties-file</artifactId>
+</dependency>
+----
+
 For more information about `security-properties-file`, you can check out the guide of the link:security-properties[quarkus-elytron-security-properties-file] extension.
 
 == GreetingController
@@ -65,7 +91,6 @@ package org.acme.spring.security;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PathVariable;
 
 @RestController
 @RequestMapping("/greeting")
@@ -109,7 +134,7 @@ public class GreetingControllerTest {
 
 == Package and run the application
 
-Run the application with: `./mvn quarkus:dev`.
+Run the application with: `./mvnw quarkus:dev`.
 Open your browser to http://localhost:8080/greeting.
 
 The result should be: `{"message": "hello"}`.
@@ -123,10 +148,10 @@ The updated controller will be:
 ----
 package org.acme.spring.security;
 
+import org.springframework.security.access.annotation.Secured;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PathVariable;
 
 @RestController
 @RequestMapping("/greeting")
@@ -404,10 +429,12 @@ The following table shows how Spring Security annotations can be converted to JA
 
 == More Spring guides
 
-Quarkus support has more Spring compatibility features. See the following guides for more details:
+Quarkus has more Spring compatibility features. See the following guides for more details:
 
 * link:spring-di[Quarkus - Extension for Spring DI]
 * link:spring-web[Quarkus - Extension for Spring Web]
 * link:spring-data-jpa[Quarkus - Extension for Spring Data JPA]
-
-
+* link:spring-cloud-config-client[Quarkus - Reading properties from Spring Cloud Config Server]
+* link:spring-boot-properties[Quarkus - Extension for Spring Boot properties]
+* link:spring-cache[Quarkus - Extension for Spring Cache]
+* link:spring-scheduled[Quarkus - Extension for Spring Scheduled]

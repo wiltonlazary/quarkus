@@ -9,6 +9,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.maven.artifact.versioning.DefaultArtifactVersion;
 import org.apache.maven.model.Plugin;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.logging.Log;
@@ -30,6 +31,14 @@ public final class CreateUtils {
     public static final String DEFAULT_PLATFORM_BOM_GROUP_ID = "io.quarkus";
     public static final String QUARKUS_CORE_BOM_ARTIFACT_ID = "quarkus-bom";
     public static final String DEFAULT_PLATFORM_BOM_ARTIFACT_ID = QUARKUS_CORE_BOM_ARTIFACT_ID;
+
+    public static final String GRADLE_WRAPPER_PATH = "gradle-wrapper";
+    public static final String[] GRADLE_WRAPPER_FILES = new String[] {
+            "gradlew",
+            "gradlew.bat",
+            "gradle/wrapper/gradle-wrapper.properties",
+            "gradle/wrapper/gradle-wrapper.jar"
+    };
 
     private CreateUtils() {
         //Not to be constructed
@@ -53,7 +62,13 @@ public final class CreateUtils {
     static QuarkusPlatformDescriptor setGlobalPlatformDescriptor(final String bomGroupId, final String bomArtifactId,
             final String bomVersion,
             MavenArtifactResolver mvn, Log log) throws MojoExecutionException {
+        final QuarkusPlatformDescriptor platform = resolvePlatformDescriptor(bomGroupId, bomArtifactId, bomVersion, mvn, log);
+        QuarkusPlatformConfig.defaultConfigBuilder().setPlatformDescriptor(platform).build();
+        return platform;
+    }
 
+    static QuarkusPlatformDescriptor resolvePlatformDescriptor(final String bomGroupId, final String bomArtifactId,
+            final String bomVersion, MavenArtifactResolver mvn, Log log) throws MojoExecutionException {
         final QuarkusJsonPlatformDescriptorResolver platformResolver = QuarkusJsonPlatformDescriptorResolver.newInstance()
                 .setMessageWriter(new MojoMessageWriter(log))
                 .setArtifactResolver(new BootstrapAppModelResolver(mvn));
@@ -62,9 +77,16 @@ public final class CreateUtils {
         String artifactId = StringUtils.defaultIfBlank(bomArtifactId, null);
         String version = StringUtils.defaultIfBlank(bomVersion, null);
 
-        if (CreateUtils.QUARKUS_CORE_BOM_ARTIFACT_ID.equals(artifactId)
-                && version == null) {
-            version = resolvePluginInfo(CreateUtils.class).getVersion();
+        if (version == null) {
+            if (CreateUtils.QUARKUS_CORE_BOM_ARTIFACT_ID.equals(artifactId)) {
+                version = resolvePluginInfo(CreateUtils.class).getVersion();
+            } else if ((groupId == null && artifactId == null) || ("quarkus-universe-bom".equals(artifactId))) {
+                String baseVersion = resolvePluginInfo(CreateUtils.class).getVersion();
+                DefaultArtifactVersion pluginVersion = new DefaultArtifactVersion(baseVersion);
+                int majorVer = pluginVersion.getMajorVersion();
+                int minorVer = pluginVersion.getMinorVersion();
+                version = "[" + majorVer + "." + minorVer + "-alpha, " + majorVer + "." + (minorVer + 1) + ")";
+            }
         }
 
         final QuarkusPlatformDescriptor platform;
@@ -79,8 +101,6 @@ public final class CreateUtils {
         } else {
             platform = platformResolver.resolveFromBom(groupId, artifactId, version);
         }
-
-        QuarkusPlatformConfig.defaultConfigBuilder().setPlatformDescriptor(platform).build();
         return platform;
     }
 

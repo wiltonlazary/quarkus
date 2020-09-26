@@ -2,6 +2,7 @@ package io.quarkus.smallrye.faulttolerance.deployment;
 
 import java.time.temporal.ChronoUnit;
 import java.util.HashSet;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 
@@ -35,7 +36,7 @@ import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.arc.processor.BuildExtension;
 import io.quarkus.arc.processor.BuiltinScope;
 import io.quarkus.arc.processor.DotNames;
-import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
 import io.quarkus.deployment.annotations.ExecutionTime;
@@ -47,17 +48,20 @@ import io.quarkus.deployment.builditem.SystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.NativeImageSystemPropertyBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ReflectiveClassBuildItem;
 import io.quarkus.deployment.builditem.nativeimage.ServiceProviderBuildItem;
+import io.quarkus.deployment.metrics.MetricsCapabilityBuildItem;
 import io.quarkus.smallrye.faulttolerance.runtime.NoopMetricRegistry;
 import io.quarkus.smallrye.faulttolerance.runtime.QuarkusFallbackHandlerProvider;
 import io.quarkus.smallrye.faulttolerance.runtime.QuarkusFaultToleranceOperationProvider;
-import io.quarkus.smallrye.faulttolerance.runtime.SmallryeFaultToleranceRecorder;
+import io.quarkus.smallrye.faulttolerance.runtime.SmallRyeFaultToleranceRecorder;
 import io.smallrye.faulttolerance.ExecutorFactory;
 import io.smallrye.faulttolerance.ExecutorProvider;
 import io.smallrye.faulttolerance.FaultToleranceBinding;
 import io.smallrye.faulttolerance.FaultToleranceInterceptor;
+import io.smallrye.faulttolerance.internal.RequestContextControllerProvider;
 import io.smallrye.faulttolerance.internal.StrategyCache;
 import io.smallrye.faulttolerance.metrics.MetricsCollectorFactory;
 import io.smallrye.faulttolerance.propagation.ContextPropagationExecutorFactory;
+import io.smallrye.faulttolerance.propagation.ContextPropagationRequestContextControllerProvider;
 
 public class SmallRyeFaultToleranceProcessor {
 
@@ -76,16 +80,18 @@ public class SmallRyeFaultToleranceProcessor {
             BuildProducer<FeatureBuildItem> feature, BuildProducer<AdditionalBeanBuildItem> additionalBean,
             BuildProducer<ServiceProviderBuildItem> serviceProvider,
             BuildProducer<BeanDefiningAnnotationBuildItem> additionalBda,
-            Capabilities capabilities,
+            Optional<MetricsCapabilityBuildItem> metricsCapability,
             BuildProducer<SystemPropertyBuildItem> systemProperty,
             CombinedIndexBuildItem combinedIndexBuildItem,
             BuildProducer<ReflectiveClassBuildItem> reflectiveClass,
             BuildProducer<NativeImageSystemPropertyBuildItem> nativeImageSystemProperty) {
 
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.SMALLRYE_FAULT_TOLERANCE));
+        feature.produce(new FeatureBuildItem(Feature.SMALLRYE_FAULT_TOLERANCE));
 
         serviceProvider.produce(new ServiceProviderBuildItem(ExecutorFactory.class.getName(),
                 ContextPropagationExecutorFactory.class.getName()));
+        serviceProvider.produce(new ServiceProviderBuildItem(RequestContextControllerProvider.class.getName(),
+                ContextPropagationRequestContextControllerProvider.class.getName()));
 
         IndexView index = combinedIndexBuildItem.getIndex();
 
@@ -144,7 +150,7 @@ public class SmallRyeFaultToleranceProcessor {
                 MetricsCollectorFactory.class);
         additionalBean.produce(builder.build());
 
-        if (!capabilities.isCapabilityPresent(Capabilities.METRICS)) {
+        if (!metricsCapability.isPresent()) {
             //disable fault tolerance metrics with the MP sys props and provides a No-op metric registry.
             additionalBean.produce(AdditionalBeanBuildItem.builder().addBeanClass(NoopMetricRegistry.class).setRemovable()
                     .setDefaultScope(DotName.createSimple(Singleton.class.getName())).build());
@@ -184,7 +190,7 @@ public class SmallRyeFaultToleranceProcessor {
     @BuildStep
     // needs to be RUNTIME_INIT because we need to read MP Config
     @Record(ExecutionTime.RUNTIME_INIT)
-    void validateFaultToleranceAnnotations(SmallryeFaultToleranceRecorder recorder,
+    void validateFaultToleranceAnnotations(SmallRyeFaultToleranceRecorder recorder,
             ValidationPhaseBuildItem validationPhase,
             BeanArchiveIndexBuildItem beanArchiveIndexBuildItem) {
         AnnotationStore annotationStore = validationPhase.getContext().get(BuildExtension.Key.ANNOTATION_STORE);
@@ -201,6 +207,12 @@ public class SmallRyeFaultToleranceProcessor {
     }
 
     private boolean hasFTAnnotations(IndexView index, AnnotationStore annotationStore, ClassInfo info) {
+        if (info == null) {
+            //should not happen, but guard against it
+            //happens in this case due to a bug involving array types
+
+            return false;
+        }
         // first check annotations on type
         if (annotationStore.hasAnyAnnotation(info, FT_ANNOTATIONS)) {
             return true;
@@ -215,11 +227,13 @@ public class SmallRyeFaultToleranceProcessor {
 
         // then check on the parent
         DotName parentClassName = info.superName();
-        ClassInfo parentClassInfo = index.getClassByName(parentClassName);
-        if (parentClassName.equals(DotNames.OBJECT) || parentClassInfo == null) {
-            return false; //no more parents
+        if (parentClassName == null || parentClassName.equals(DotNames.OBJECT)) {
+            return false;
         }
-
+        ClassInfo parentClassInfo = index.getClassByName(parentClassName);
+        if (parentClassInfo == null) {
+            return false;
+        }
         return hasFTAnnotations(index, annotationStore, parentClassInfo);
     }
 

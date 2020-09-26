@@ -10,6 +10,7 @@ import org.bson.Document;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 
+import io.quarkus.mongodb.panache.runtime.JavaMongoOperations;
 import io.quarkus.mongodb.panache.runtime.MongoOperations;
 import io.quarkus.panache.common.Parameters;
 import io.quarkus.panache.common.Sort;
@@ -26,8 +27,7 @@ import io.quarkus.panache.common.impl.GenerateBridge;
  * @see PanacheMongoRepository
  */
 public interface PanacheMongoRepositoryBase<Entity, Id> {
-
-    // Operations
+    MongoOperations operations = new JavaMongoOperations();
 
     /**
      * Persist the given entity in the database.
@@ -39,7 +39,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persist(Object, Object...)
      */
     public default void persist(Entity entity) {
-        MongoOperations.persist(entity);
+        operations.persist(entity);
     }
 
     /**
@@ -51,7 +51,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #update(Object, Object...)
      */
     public default void update(Entity entity) {
-        MongoOperations.update(entity);
+        operations.update(entity);
     }
 
     /**
@@ -63,7 +63,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persistOrUpdate(Object, Object...)
      */
     public default void persistOrUpdate(Entity entity) {
-        MongoOperations.persistOrUpdate(entity);
+        operations.persistOrUpdate(entity);
     }
 
     /**
@@ -76,7 +76,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #deleteAll()
      */
     public default void delete(Entity entity) {
-        MongoOperations.delete(entity);
+        operations.delete(entity);
     }
 
     // Queries
@@ -89,7 +89,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge(targetReturnTypeErased = true)
     public default Entity findById(Id id) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -100,7 +100,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Optional<Entity> findByIdOptional(Id id) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -117,7 +117,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(String query, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -135,7 +135,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(String query, Sort sort, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -152,7 +152,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(String query, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -170,7 +170,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(String query, Sort sort, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -187,7 +187,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(String query, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -205,7 +205,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(String query, Sort sort, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -213,15 +213,15 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      *
      * @param query a {@link org.bson.Document} query
      * @return a new {@link PanacheQuery} instance for the given query
-     * @see #find(String, Parameters)
-     * @see #find(String, Sort, Map)
-     * @see #find(String, Sort, Parameters)
-     * @see #list(String, Sort, Parameters)
-     * @see #stream(String, Sort, Parameters)
+     * @see #find(Document, Document)
+     * @see #list(Document)
+     * @see #list(Document, Document)
+     * @see #stream(Document)
+     * @see #stream(Document, Document)
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(Document query) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -230,15 +230,15 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @param query a {@link org.bson.Document} query
      * @param sort the {@link org.bson.Document} sort
      * @return a new {@link PanacheQuery} instance for the given query
-     * @see #find(String, Parameters)
-     * @see #find(String, Sort, Map)
-     * @see #find(String, Sort, Parameters)
-     * @see #list(String, Sort, Parameters)
-     * @see #stream(String, Sort, Parameters)
+     * @see #find(Document)
+     * @see #list(Document)
+     * @see #list(Document, Document)
+     * @see #stream(Document)
+     * @see #stream(Document, Document)
      */
     @GenerateBridge
     public default PanacheQuery<Entity> find(Document query, Document sort) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -251,7 +251,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> findAll() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -265,7 +265,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default PanacheQuery<Entity> findAll(Sort sort) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -283,7 +283,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> list(String query, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -302,7 +302,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> list(String query, Sort sort, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -320,7 +320,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> list(String query, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -339,7 +339,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> list(String query, Sort sort, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -357,7 +357,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> list(String query, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -376,7 +376,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> list(String query, Sort sort, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -384,16 +384,16 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * This method is a shortcut for <code>find(query).list()</code>.
      *
      * @param query a {@link org.bson.Document} query
-     * @return a new {@link PanacheQuery} instance for the given query
-     * @see #find(String, Parameters)
-     * @see #find(String, Sort, Map)
-     * @see #find(String, Sort, Parameters)
-     * @see #list(String, Sort, Parameters)
-     * @see #stream(String, Sort, Parameters)
+     * @return a {@link List} containing all results, without paging
+     * @see #find(Document)
+     * @see #find(Document, Document)
+     * @see #list(Document, Document)
+     * @see #stream(Document)
+     * @see #stream(Document, Document)
      */
     @GenerateBridge
-    public default PanacheQuery<Entity> list(Document query) {
-        throw MongoOperations.implementationInjectionMissing();
+    public default List<Entity> list(Document query) {
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -402,16 +402,16 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      *
      * @param query a {@link org.bson.Document} query
      * @param sort the {@link org.bson.Document} sort
-     * @return a new {@link PanacheQuery} instance for the given query
-     * @see #find(String, Parameters)
-     * @see #find(String, Sort, Map)
-     * @see #find(String, Sort, Parameters)
-     * @see #list(String, Sort, Parameters)
-     * @see #stream(String, Sort, Parameters)
+     * @return a {@link List} containing all results, without paging
+     * @see #find(Document)
+     * @see #find(Document, Document)
+     * @see #list(Document)
+     * @see #stream(Document)
+     * @see #stream(Document, Document)
      */
     @GenerateBridge
-    public default PanacheQuery<Entity> list(Document query, Document sort) {
-        throw MongoOperations.implementationInjectionMissing();
+    public default List<Entity> list(Document query, Document sort) {
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -425,7 +425,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> listAll() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -440,7 +440,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default List<Entity> listAll(Sort sort) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -458,7 +458,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> stream(String query, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -477,7 +477,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> stream(String query, Sort sort, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -495,7 +495,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> stream(String query, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -514,7 +514,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> stream(String query, Sort sort, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -532,7 +532,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> stream(String query, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -551,7 +551,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> stream(String query, Sort sort, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -559,16 +559,16 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * This method is a shortcut for <code>find(query).stream()</code>.
      *
      * @param query a {@link org.bson.Document} query
-     * @return a new {@link PanacheQuery} instance for the given query
-     * @see #find(String, Parameters)
-     * @see #find(String, Sort, Map)
-     * @see #find(String, Sort, Parameters)
-     * @see #list(String, Sort, Parameters)
-     * @see #stream(String, Sort, Parameters)
+     * @return a {@link Stream} containing all results, without paging
+     * @see #find(Document)
+     * @see #find(Document, Document)
+     * @see #list(Document)
+     * @see #list(Document, Document)
+     * @see #stream(Document, Document)
      */
     @GenerateBridge
-    public default PanacheQuery<Entity> stream(Document query) {
-        throw MongoOperations.implementationInjectionMissing();
+    public default Stream<Entity> stream(Document query) {
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -577,16 +577,16 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      *
      * @param query a {@link org.bson.Document} query
      * @param sort the {@link org.bson.Document} sort
-     * @return a new {@link PanacheQuery} instance for the given query
-     * @see #find(String, Parameters)
-     * @see #find(String, Sort, Map)
-     * @see #find(String, Sort, Parameters)
-     * @see #list(String, Sort, Parameters)
-     * @see #stream(String, Sort, Parameters)
+     * @return a {@link Stream} containing all results, without paging
+     * @see #find(Document)
+     * @see #find(Document, Document)
+     * @see #list(Document)
+     * @see #list(Document, Document)
+     * @see #stream(Document)
      */
     @GenerateBridge
-    public default PanacheQuery<Entity> stream(Document query, Document sort) {
-        throw MongoOperations.implementationInjectionMissing();
+    public default Stream<Entity> stream(Document query, Document sort) {
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -600,7 +600,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> streamAll(Sort sort) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -614,7 +614,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default Stream<Entity> streamAll() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -627,7 +627,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long count() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -642,7 +642,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long count(String query, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -657,7 +657,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long count(String query, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -672,7 +672,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long count(String query, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -686,7 +686,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long count(Document query) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -699,7 +699,18 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long deleteAll() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
+    }
+
+    /**
+     * Delete an entity of this type by ID.
+     *
+     * @param id the ID of the entity to delete.
+     * @return false if the entity was not deleted (not found).
+     */
+    @GenerateBridge
+    public default boolean deleteById(Id id) {
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -714,7 +725,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long delete(String query, Object... params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -729,7 +740,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long delete(String query, Map<String, Object> params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -744,7 +755,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long delete(String query, Parameters params) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -758,7 +769,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default long delete(Document query) {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -770,7 +781,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persist(Object,Object...)
      */
     public default void persist(Iterable<Entity> entities) {
-        MongoOperations.persist(entities);
+        operations.persist(entities);
     }
 
     /**
@@ -782,7 +793,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persist(Object,Object...)
      */
     public default void persist(Stream<Entity> entities) {
-        MongoOperations.persist(entities);
+        operations.persist(entities);
     }
 
     /**
@@ -793,8 +804,8 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persist(Stream)
      * @see #persist(Iterable)
      */
-    public default void persist(Entity firstEntity, @SuppressWarnings("unchecked") Entity... entities) {
-        MongoOperations.persist(firstEntity, entities);
+    public default void persist(Entity firstEntity, Entity... entities) {
+        operations.persist(firstEntity, entities);
     }
 
     /**
@@ -806,7 +817,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #update(Object,Object...)
      */
     public default void update(Iterable<Entity> entities) {
-        MongoOperations.update(entities);
+        operations.update(entities);
     }
 
     /**
@@ -818,7 +829,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #update(Object,Object...)
      */
     public default void update(Stream<Entity> entities) {
-        MongoOperations.update(entities);
+        operations.update(entities);
     }
 
     /**
@@ -830,7 +841,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #update(Iterable)
      */
     public default void update(Entity firstEntity, @SuppressWarnings("unchecked") Entity... entities) {
-        MongoOperations.update(firstEntity, entities);
+        operations.update(firstEntity, entities);
     }
 
     /**
@@ -842,7 +853,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persistOrUpdate(Object,Object...)
      */
     public default void persistOrUpdate(Iterable<Entity> entities) {
-        MongoOperations.persistOrUpdate(entities);
+        operations.persistOrUpdate(entities);
     }
 
     /**
@@ -854,7 +865,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #persistOrUpdate(Object,Object...)
      */
     public default void persistOrUpdate(Stream<Entity> entities) {
-        MongoOperations.persistOrUpdate(entities);
+        operations.persistOrUpdate(entities);
     }
 
     /**
@@ -866,7 +877,56 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      * @see #update(Iterable)
      */
     public default void persistOrUpdate(Entity firstEntity, @SuppressWarnings("unchecked") Entity... entities) {
-        MongoOperations.persistOrUpdate(firstEntity, entities);
+        operations.persistOrUpdate(firstEntity, entities);
+    }
+
+    /**
+     * Update all entities of this type by the given update document, with optional indexed parameters.
+     * The returned {@link PanacheUpdate} object will allow to restrict on which documents the update should be applied.
+     *
+     * @param update the update document, if it didn't contain <code>$set</code> we add it.
+     *        It can also be expressed as a {@link io.quarkus.mongodb.panache query string}.
+     * @param params optional sequence of indexed parameters
+     * @return a new {@link PanacheUpdate} instance for the given update document
+     * @see #update(String, Map)
+     * @see #update(String, Parameters)
+     */
+    @GenerateBridge
+    public default PanacheUpdate update(String update, Object... params) {
+        throw operations.implementationInjectionMissing();
+    }
+
+    /**
+     * Update all entities of this type by the given update document, with named parameters.
+     * The returned {@link PanacheUpdate} object will allow to restrict on which documents the update should be applied.
+     *
+     * @param update the update document, if it didn't contain <code>$set</code> we add it.
+     *        It can also be expressed as a {@link io.quarkus.mongodb.panache query string}.
+     * @param params {@link Map} of named parameters
+     * @return a new {@link PanacheUpdate} instance for the given update document
+     * @see #update(String, Object...)
+     * @see #update(String, Parameters)
+     *
+     */
+    @GenerateBridge
+    public default PanacheUpdate update(String update, Map<String, Object> params) {
+        throw operations.implementationInjectionMissing();
+    }
+
+    /**
+     * Update all entities of this type by the given update document, with named parameters.
+     * The returned {@link PanacheUpdate} object will allow to restrict on which document the update should be applied.
+     *
+     * @param update the update document, if it didn't contain <code>$set</code> we add it.
+     *        It can also be expressed as a {@link io.quarkus.mongodb.panache query string}.
+     * @param params {@link Parameters} of named parameters
+     * @return a new {@link PanacheUpdate} instance for the given update document
+     * @see #update(String, Object...)
+     * @see #update(String, Map)
+     */
+    @GenerateBridge
+    public default PanacheUpdate update(String update, Parameters params) {
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -874,7 +934,7 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default MongoCollection<Entity> mongoCollection() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 
     /**
@@ -882,6 +942,6 @@ public interface PanacheMongoRepositoryBase<Entity, Id> {
      */
     @GenerateBridge
     public default MongoDatabase mongoDatabase() {
-        throw MongoOperations.implementationInjectionMissing();
+        throw operations.implementationInjectionMissing();
     }
 }

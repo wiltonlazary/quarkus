@@ -34,7 +34,7 @@ To complete this guide, you need:
 * less than 15 minutes
 * an IDE
 * JDK 1.8+ installed with JAVA_HOME configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 * Having completed the link:https://quarkus.io/guides/getting-started-testing[Testing your application guide]
 
 == Architecture
@@ -67,7 +67,7 @@ First, an application serving a hello endpoint:
 
 [source,java]
 ----
-package org.acme.quickstart;
+package org.acme.testcoverage;
 
 import javax.inject.Inject;
 import javax.ws.rs.GET;
@@ -105,7 +105,7 @@ This endpoint uses a greeting service:
 
 [source,java]
 ----
-package org.acme.quickstart;
+package org.acme.testcoverage;
 
 import javax.enterprise.context.ApplicationScoped;
 
@@ -123,7 +123,7 @@ The project will also need some tests. First a simple JUnit:
 
 [source,java]
 ----
-package org.acme.quickstart;
+package org.acme.testcoverage;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -142,7 +142,7 @@ But also a `@QuarkusTest`:
 
 [source,java]
 ----
-package org.acme.quickstart;
+package org.acme.testcoverage;
 
 import io.quarkus.test.junit.QuarkusTest;
 import org.junit.jupiter.api.Test;
@@ -211,9 +211,10 @@ We're now able to distinguish unit tests and integration tests. Now, let's bind 
                 <version>${surefire-plugin.version}</version>
                 <configuration>
                     <excludedGroups>integration</excludedGroups>
-                    <systemProperties>
+                    <systemPropertyVariables>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-                    </systemProperties>
+                        <maven.home>${maven.home}</maven.home>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
@@ -358,7 +359,7 @@ During the report generation, you may have noticed a warning:
 [source,shell,subs=attributes+]
 ----
 [WARNING] Classes in bundle '***' do no match with execution data. For report generation the same class files must be used as at runtime.
-[WARNING] Execution data for class org/acme/quickstart/GreetingResource does not match.
+[WARNING] Execution data for class org/acme/testcoverage/GreetingResource does not match.
 ----
 
 It seems that Quarkus and JaCoCo step on each other's toes. What happens is that Quarkus transforms the JAX-RS resources (and also the Panache files).
@@ -531,10 +532,11 @@ It also requires a small change in the Surefire configuration. Note below that w
                 <version>${surefire-plugin.version}</version>
                 <configuration>
                     <excludedGroups>integration</excludedGroups>
-                    <systemProperties>
+                    <systemPropertyVariables>
                         <jacoco-agent.destfile>${project.build.directory}/jacoco-ut.exec</jacoco-agent.destfile>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-                    </systemProperties>
+                        <maven.home>${maven.home}</maven.home>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
@@ -546,9 +548,9 @@ It also requires a small change in the Surefire configuration. Note below that w
                         <configuration>
                             <excludedGroups>!integration</excludedGroups>
                             <groups>integration</groups>
-                            <systemProperties>
+                            <systemPropertyVariables>
                                 <jacoco-agent.destfile>${project.build.directory}/jacoco-it.exec</jacoco-agent.destfile>
-                            </systemProperties>
+                            </systemPropertyVariables>
                         </configuration>
                     </execution>
                 </executions>
@@ -577,10 +579,11 @@ You should end up with something like this (note the addition of the `merge-resu
                 <version>${surefire-plugin.version}</version>
                 <configuration>
                     <excludedGroups>integration</excludedGroups>
-                    <systemProperties>
+                    <systemPropertyVariables>
                         <jacoco-agent.destfile>${project.build.directory}/jacoco-ut.exec</jacoco-agent.destfile>
                         <java.util.logging.manager>org.jboss.logmanager.LogManager</java.util.logging.manager>
-                    </systemProperties>
+                        <maven.home>${maven.home}</maven.home>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
@@ -592,9 +595,9 @@ You should end up with something like this (note the addition of the `merge-resu
                         <configuration>
                             <excludedGroups>!integration</excludedGroups>
                             <groups>integration</groups>
-                            <systemProperties>
+                            <systemPropertyVariables>
                                 <jacoco-agent.destfile>${project.build.directory}/jacoco-it.exec</jacoco-agent.destfile>
-                            </systemProperties>
+                            </systemPropertyVariables>
                         </configuration>
                     </execution>
                 </executions>

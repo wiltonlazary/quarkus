@@ -279,8 +279,7 @@ public class NativeImageMojo extends AbstractMojo {
                     .build();
             appCoords.setPath(resolver.resolve(appMvnArtifact).getArtifact().getFile().toPath());
 
-            try (CuratedApplication curatedApplication = QuarkusBootstrap.builder(appCoords.getPath())
-                    .setProjectRoot(project.getBasedir().toPath())
+            try (CuratedApplication curatedApplication = QuarkusBootstrap.builder()
                     .setBuildSystemProperties(realProperties)
                     .setAppArtifact(appCoords)
                     .setBaseName(finalName)
@@ -312,7 +311,7 @@ public class NativeImageMojo extends AbstractMojo {
 
     private Map<String, String> createCustomConfig() {
         Map<String, String> configs = new HashMap<>();
-        configs.put("quarkus.package.type", "native");
+        configs.put(QUARKUS_PACKAGE_TYPE, "native");
         if (addAllCharsets != null) {
             configs.put("quarkus.native.add-all-charsets", addAllCharsets.toString());
         }

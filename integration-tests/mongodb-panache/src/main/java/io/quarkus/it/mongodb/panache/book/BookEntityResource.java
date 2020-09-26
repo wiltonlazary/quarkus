@@ -59,8 +59,10 @@ public class BookEntityResource {
     @DELETE
     @Path("/{id}")
     public void deleteBook(@PathParam("id") String id) {
-        BookEntity theBook = BookEntity.findById(new ObjectId(id));
-        theBook.delete();
+        boolean deleted = BookEntity.deleteById(new ObjectId(id));
+        if (!deleted) {
+            throw new NotFoundException();
+        }
     }
 
     @GET
@@ -106,6 +108,11 @@ public class BookEntityResource {
 
         return BookEntity.find("{'creationDate': {$gte: :dateFrom}, 'creationDate': {$lte: :dateTo}}",
                 Parameters.with("dateFrom", LocalDate.parse(dateFrom)).and("dateTo", LocalDate.parse(dateTo))).firstResult();
+    }
+
+    @DELETE
+    public void deleteAll() {
+        BookEntity.deleteAll();
     }
 
 }

@@ -2,10 +2,8 @@ package io.quarkus.arc.processor;
 
 import static io.quarkus.arc.processor.IndexClassLookupUtils.getClassByName;
 
-import io.quarkus.arc.processor.BeanDeploymentValidator.ValidationRule;
 import io.quarkus.arc.processor.Methods.MethodKey;
 import io.quarkus.gizmo.MethodCreator;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -20,7 +18,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import javax.enterprise.inject.spi.DefinitionException;
 import javax.enterprise.inject.spi.DeploymentException;
 import javax.enterprise.inject.spi.InterceptionType;
 import org.jboss.jandex.AnnotationInstance;
@@ -284,9 +281,10 @@ public class BeanInfo implements InjectionTargetInfo {
         }
         if (isClassBean()) {
             return getLifecycleInterceptors(InterceptionType.PRE_DESTROY).isEmpty()
-                    && Beans.getCallbacks(target.get().asClass(), DotNames.PRE_DESTROY, beanDeployment.getIndex()).isEmpty();
+                    && Beans.getCallbacks(target.get().asClass(), DotNames.PRE_DESTROY, beanDeployment.getBeanArchiveIndex())
+                            .isEmpty();
         } else {
-            return disposer == null;
+            return disposer == null && destroyerConsumer == null;
         }
     }
 
@@ -353,68 +351,13 @@ public class BeanInfo implements InjectionTargetInfo {
         return params;
     }
 
-    void validate(List<Throwable> errors, List<BeanDeploymentValidator> validators) {
-        if (isClassBean()) {
-            ClassInfo beanClass = target.get().asClass();
-            String classifier = scope.isNormal() ? "Normal scoped" : null;
-            if (classifier == null && isSubclassRequired()) {
-                classifier = "Intercepted";
-            }
-            if (Modifier.isFinal(beanClass.flags()) && classifier != null) {
-                errors.add(new DefinitionException(String.format("%s bean must not be final: %s", classifier, this)));
-            }
-
-            MethodInfo noArgsConstructor = beanClass.method(Methods.INIT);
-            if (!ValidationRule.NO_ARGS_CONSTRUCTOR.skipFor(validators, this)) {
-                // Note that spec also requires no-arg constructor for intercepted beans but intercepted subclasses should work fine with non-private @Inject
-                // constructors so we only validate normal scoped beans
-                if (scope.isNormal() && noArgsConstructor == null) {
-                    errors.add(new DefinitionException(String
-                            .format("Normal scoped beans must declare a non-private constructor with no parameters: %s",
-                                    this)));
-                }
-            }
-            if (noArgsConstructor != null && Modifier.isPrivate(noArgsConstructor.flags()) && classifier != null) {
-                errors.add(
-                        new DefinitionException(
-                                String.format(
-                                        "%s bean is not proxyable because it has a private no-args constructor: %s. To fix this problem, change the constructor to be package-private",
-                                        classifier, this)));
-            }
-
-        } else if (isProducerField() || isProducerMethod()) {
-            ClassInfo returnTypeClass = getClassByName(beanDeployment.getIndex(),
-                    (isProducerMethod() ? target.get().asMethod().returnType() : target.get().asField().type()).name());
-            // can be null for primitive types
-            if (returnTypeClass != null && scope.isNormal() && !Modifier.isInterface(returnTypeClass.flags())) {
-                String methodOrField = isProducerMethod() ? "method" : "field";
-                String classifier = "Producer " + methodOrField + " for a normal scoped bean";
-                if (Modifier.isFinal(returnTypeClass.flags())) {
-                    errors.add(
-                            new DefinitionException(String.format("%s must not have a" +
-                                    " return type that is final: %s", classifier, this)));
-                }
-                MethodInfo noArgsConstructor = returnTypeClass.method(Methods.INIT);
-                if (!ValidationRule.NO_ARGS_CONSTRUCTOR.skipFor(validators, this)) {
-                    if (noArgsConstructor == null) {
-                        errors.add(new DefinitionException(String
-                                .format("Return type of a producer " + methodOrField + " for normal scoped beans must" +
-                                        " declare a non-private constructor with no parameters: %s", this)));
-                    }
-                }
-                if (noArgsConstructor != null && Modifier.isPrivate(noArgsConstructor.flags())) {
-                    errors.add(
-                            new DefinitionException(
-                                    String.format(
-                                            "%s is not proxyable because it has a private no-args constructor: %s.",
-                                            classifier, this)));
-                }
-            }
-        }
+    void validate(List<Throwable> errors, List<BeanDeploymentValidator> validators,
+            Consumer<BytecodeTransformer> bytecodeTransformerConsumer) {
+        Beans.validateBean(this, errors, validators, bytecodeTransformerConsumer);
     }
 
     void init(List<Throwable> errors, Consumer<BytecodeTransformer> bytecodeTransformerConsumer,
-            boolean removeFinalForProxyableMethods) {
+            boolean transformUnproxyableClasses) {
         for (Injection injection : injections) {
             for (InjectionPointInfo injectionPoint : injection.injectionPoints) {
                 Beans.resolveInjectionPoint(beanDeployment, this, injectionPoint, errors);
@@ -423,7 +366,7 @@ public class BeanInfo implements InjectionTargetInfo {
         if (disposer != null) {
             disposer.init(errors);
         }
-        interceptedMethods.putAll(initInterceptedMethods(errors, bytecodeTransformerConsumer, removeFinalForProxyableMethods));
+        interceptedMethods.putAll(initInterceptedMethods(errors, bytecodeTransformerConsumer, transformUnproxyableClasses));
         if (errors.isEmpty()) {
             lifecycleInterceptors.putAll(initLifecycleInterceptors());
         }
@@ -442,7 +385,7 @@ public class BeanInfo implements InjectionTargetInfo {
     }
 
     private Map<MethodInfo, InterceptionInfo> initInterceptedMethods(List<Throwable> errors,
-            Consumer<BytecodeTransformer> bytecodeTransformerConsumer, boolean removeFinalForProxyableMethods) {
+            Consumer<BytecodeTransformer> bytecodeTransformerConsumer, boolean transformUnproxyableClasses) {
         if (!isInterceptor() && isClassBean()) {
             Map<MethodInfo, InterceptionInfo> interceptedMethods = new HashMap<>();
             Map<MethodKey, Set<AnnotationInstance>> candidates = new HashMap<>();
@@ -456,7 +399,7 @@ public class BeanInfo implements InjectionTargetInfo {
             }
 
             Set<MethodInfo> finalMethods = Methods.addInterceptedMethodCandidates(beanDeployment, target.get().asClass(),
-                    candidates, classLevelBindings, bytecodeTransformerConsumer, removeFinalForProxyableMethods);
+                    candidates, classLevelBindings, bytecodeTransformerConsumer, transformUnproxyableClasses);
             if (!finalMethods.isEmpty()) {
                 errors.add(new DeploymentException(String.format(
                         "Intercepted methods of the bean %s may not be declared final:\n\t- %s", getBeanClass(),
@@ -510,7 +453,7 @@ public class BeanInfo implements InjectionTargetInfo {
                         && bindings.stream().noneMatch(e -> e.name().equals(a.name())))
                 .forEach(a -> bindings.add(a));
         if (classInfo.superClassType() != null && !classInfo.superClassType().name().equals(DotNames.OBJECT)) {
-            ClassInfo superClass = getClassByName(beanDeployment.getIndex(), classInfo.superName());
+            ClassInfo superClass = getClassByName(beanDeployment.getBeanArchiveIndex(), classInfo.superName());
             if (superClass != null) {
                 addClassLevelBindings(superClass, bindings);
             }
@@ -553,7 +496,7 @@ public class BeanInfo implements InjectionTargetInfo {
 
     @Override
     public int hashCode() {
-        return Objects.hash(identifier);
+        return identifier.hashCode();
     }
 
     @Override
@@ -594,19 +537,9 @@ public class BeanInfo implements InjectionTargetInfo {
             case CLASS:
                 return target.asClass();
             case FIELD:
-                Type fieldType = target.asField().type();
-                if (fieldType.kind() != org.jboss.jandex.Type.Kind.PRIMITIVE
-                        && fieldType.kind() != org.jboss.jandex.Type.Kind.ARRAY) {
-                    return getClassByName(beanDeployment.getIndex(), fieldType.name());
-                }
-                break;
+                return getClassByName(beanDeployment.getBeanArchiveIndex(), target.asField().type());
             case METHOD:
-                Type returnType = target.asMethod().returnType();
-                if (returnType.kind() != org.jboss.jandex.Type.Kind.PRIMITIVE
-                        && returnType.kind() != org.jboss.jandex.Type.Kind.ARRAY) {
-                    return getClassByName(beanDeployment.getIndex(), returnType.name());
-                }
-                break;
+                return getClassByName(beanDeployment.getBeanArchiveIndex(), target.asMethod().returnType());
             default:
                 break;
         }

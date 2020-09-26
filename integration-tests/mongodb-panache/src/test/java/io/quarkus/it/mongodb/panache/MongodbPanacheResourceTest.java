@@ -3,8 +3,6 @@ package io.quarkus.it.mongodb.panache;
 import static io.restassured.RestAssured.get;
 import static org.hamcrest.Matchers.is;
 
-import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Calendar;
@@ -13,6 +11,7 @@ import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.List;
 
+import org.hamcrest.CoreMatchers;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -187,6 +186,13 @@ class MongodbPanacheResourceTest {
         //test some special characters
         list = get(endpoint + "/search/Victor'\\ Hugo").as(LIST_OF_BOOK_TYPE_REF);
         Assertions.assertEquals(0, list.size());
+
+        //delete all
+        response = RestAssured
+                .given()
+                .delete(endpoint)
+                .andReturn();
+        Assertions.assertEquals(204, response.statusCode());
     }
 
     private void callPersonEndpoint(String endpoint) {
@@ -252,10 +258,20 @@ class MongodbPanacheResourceTest {
 
         //with project
         list = get(endpoint + "/search/Doe").as(LIST_OF_PERSON_TYPE_REF);
-        Assertions.assertEquals(2, list.size());
+        Assertions.assertEquals(1, list.size());
         Assertions.assertNotNull(list.get(0).lastname);
         //expected the firstname field to be null as we project on lastname only
         Assertions.assertNull(list.get(0).firstname);
+
+        //rename the Doe
+        RestAssured
+                .given()
+                .queryParam("previousName", "Doe").queryParam("newName", "Dupont")
+                .header("Content-Type", "application/json")
+                .when().post(endpoint + "/rename")
+                .then().statusCode(200);
+        list = get(endpoint + "/search/Dupont").as(LIST_OF_PERSON_TYPE_REF);
+        Assertions.assertEquals(1, list.size());
 
         //count
         Long count = get(endpoint + "/count").as(Long.class);
@@ -295,16 +311,21 @@ class MongodbPanacheResourceTest {
 
         count = get(endpoint + "/count").as(Long.class);
         Assertions.assertEquals(0, count);
+
+        // Test prometheus metrics gathered using micrometer metrics
+        RestAssured.given()
+                .when().get("/metrics")
+                .then()
+                .statusCode(200)
+                .body(CoreMatchers.containsString("mongodb_driver_pool_checkedout"))
+                .body(CoreMatchers.containsString("mongodb_driver_pool_size"))
+                .body(CoreMatchers.containsString("mongodb_driver_pool_waitqueuesize"));
     }
 
     private Date yearToDate(int year) {
         Calendar cal = new GregorianCalendar();
         cal.set(year, 1, 1);
         return cal.getTime();
-    }
-
-    private Date fromYear(int year) {
-        return Date.from(LocalDate.of(year, 1, 1).atStartOfDay().toInstant(ZoneOffset.UTC));
     }
 
     @Test
@@ -318,9 +339,29 @@ class MongodbPanacheResourceTest {
     }
 
     @Test
+    public void testDatesFormat() {
+        get("/bugs/dates").then().statusCode(200);
+    }
+
+    @Test
     public void testNeedReflection() {
         get("/bugs/6324").then().statusCode(200);
 
         get("/bugs/6324/abstract").then().statusCode(200);
+    }
+
+    @Test
+    public void testBug7415() {
+        get("/bugs/7415").then().statusCode(200);
+    }
+
+    @Test
+    public void testMoreEntityFunctionalities() {
+        get("/test/imperative/entity").then().statusCode(200);
+    }
+
+    @Test
+    public void testMoreRepositoryFunctionalities() {
+        get("/test/imperative/repository").then().statusCode(200);
     }
 }

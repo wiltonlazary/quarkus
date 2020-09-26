@@ -10,6 +10,7 @@ import static io.quarkus.deployment.util.ReflectUtil.rawTypeExtends;
 import static io.quarkus.deployment.util.ReflectUtil.rawTypeIs;
 import static io.quarkus.deployment.util.ReflectUtil.rawTypeOf;
 import static io.quarkus.deployment.util.ReflectUtil.rawTypeOfParameter;
+import static java.util.Arrays.asList;
 
 import java.io.IOException;
 import java.lang.reflect.AnnotatedElement;
@@ -59,6 +60,7 @@ import io.quarkus.deployment.annotations.Consume;
 import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.deployment.annotations.Overridable;
 import io.quarkus.deployment.annotations.Produce;
+import io.quarkus.deployment.annotations.ProduceWeak;
 import io.quarkus.deployment.annotations.Record;
 import io.quarkus.deployment.annotations.Weak;
 import io.quarkus.deployment.builditem.AdditionalApplicationArchiveMarkerBuildItem;
@@ -66,7 +68,6 @@ import io.quarkus.deployment.builditem.BootstrapConfigSetupCompleteBuildItem;
 import io.quarkus.deployment.builditem.BytecodeRecorderObjectLoaderBuildItem;
 import io.quarkus.deployment.builditem.CapabilityBuildItem;
 import io.quarkus.deployment.builditem.ConfigurationBuildItem;
-import io.quarkus.deployment.builditem.DeploymentClassLoaderBuildItem;
 import io.quarkus.deployment.builditem.MainBytecodeRecorderBuildItem;
 import io.quarkus.deployment.builditem.RunTimeConfigurationProxyBuildItem;
 import io.quarkus.deployment.builditem.RuntimeConfigSetupCompleteBuildItem;
@@ -253,6 +254,9 @@ public final class ExtensionLoader {
         final Constructor<?>[] constructors = clazz.getDeclaredConstructors();
         // this is the chain configuration that will contain all steps on this class and be returned
         Consumer<BuildChainBuilder> chainConfig = Functions.discardingConsumer();
+        if (Modifier.isAbstract(clazz.getModifiers())) {
+            return chainConfig;
+        }
         // this is the step configuration that applies to all steps on this class
         Consumer<BuildStepBuilder> stepConfig = Functions.discardingConsumer();
         // this is the build step instance setup that applies to all steps on this class
@@ -482,7 +486,7 @@ public final class ExtensionLoader {
         }
 
         // now iterate the methods
-        final Method[] methods = clazz.getDeclaredMethods();
+        final List<Method> methods = getMethods(clazz);
         for (Method method : methods) {
             final int mods = method.getModifiers();
             if (Modifier.isStatic(mods)) {
@@ -496,7 +500,6 @@ public final class ExtensionLoader {
             final BuildStep buildStep = method.getAnnotation(BuildStep.class);
             final String[] archiveMarkers = buildStep.applicationArchiveMarkers();
             final String[] capabilities = buildStep.providesCapabilities();
-            final boolean loadsAppClasses = buildStep.loadsApplicationClasses();
             final Class<? extends BooleanSupplier>[] onlyIf = buildStep.onlyIf();
             final Class<? extends BooleanSupplier>[] onlyIfNot = buildStep.onlyIfNot();
             final Parameter[] methodParameters = method.getParameters();
@@ -867,7 +870,7 @@ public final class ExtensionLoader {
 
             final Consume[] consumes = method.getAnnotationsByType(Consume.class);
             if (consumes.length > 0) {
-                stepConfig = stepConfig.andThen(bsb -> {
+                methodStepConfig = methodStepConfig.andThen(bsb -> {
                     for (Consume consume : consumes) {
                         bsb.afterProduce(consume.value());
                     }
@@ -875,9 +878,17 @@ public final class ExtensionLoader {
             }
             final Produce[] produces = method.getAnnotationsByType(Produce.class);
             if (produces.length > 0) {
-                stepConfig = stepConfig.andThen(bsb -> {
+                methodStepConfig = methodStepConfig.andThen(bsb -> {
                     for (Produce produce : produces) {
                         bsb.beforeConsume(produce.value());
+                    }
+                });
+            }
+            final ProduceWeak[] produceWeaks = method.getAnnotationsByType(ProduceWeak.class);
+            if (produceWeaks.length > 0) {
+                methodStepConfig = methodStepConfig.andThen(bsb -> {
+                    for (ProduceWeak produceWeak : produceWeaks) {
+                        bsb.beforeConsume(produceWeak.value(), ProduceFlag.WEAK);
                     }
                 });
             }
@@ -914,15 +925,11 @@ public final class ExtensionLoader {
                                 Object[] methodArgs = new Object[methodParamFns.size()];
                                 BytecodeRecorderImpl bri = isRecorder
                                         ? new BytecodeRecorderImpl(recordAnnotation.value() == ExecutionTime.STATIC_INIT,
-                                                clazz.getSimpleName(), method.getName())
+                                                clazz.getSimpleName(), method.getName(),
+                                                Integer.toString(method.toString().hashCode()))
                                         : null;
                                 for (int i = 0; i < methodArgs.length; i++) {
                                     methodArgs[i] = methodParamFns.get(i).apply(bc, bri);
-                                }
-                                ClassLoader old = Thread.currentThread().getContextClassLoader();
-                                if (loadsAppClasses) {
-                                    Thread.currentThread().setContextClassLoader(
-                                            bc.consume(DeploymentClassLoaderBuildItem.class).getClassLoader());
                                 }
                                 Object result;
                                 try {
@@ -937,10 +944,6 @@ public final class ExtensionLoader {
                                     } catch (Throwable t) {
                                         throw new IllegalStateException(t);
                                     }
-                                } finally {
-                                    //we do this every time, it also provides a measure of safety if the build step
-                                    //does something funny to the TCCL
-                                    Thread.currentThread().setContextClassLoader(old);
                                 }
                                 resultConsumer.accept(bc, result);
                                 if (isRecorder) {
@@ -958,13 +961,19 @@ public final class ExtensionLoader {
                                 return name;
                             }
                         });
-                        if (loadsAppClasses) {
-                            bsb.consumes(DeploymentClassLoaderBuildItem.class);
-                        }
                         finalStepConfig.accept(bsb);
                     });
         }
         return chainConfig;
+    }
+
+    protected static List<Method> getMethods(Class<?> clazz) {
+        List<Method> declaredMethods = new ArrayList<>();
+        if (!clazz.getName().equals(Object.class.getName())) {
+            declaredMethods.addAll(getMethods(clazz.getSuperclass()));
+            declaredMethods.addAll(asList(clazz.getDeclaredMethods()));
+        }
+        return declaredMethods;
     }
 
     private static BooleanSupplier and(BooleanSupplier a, BooleanSupplier b) {

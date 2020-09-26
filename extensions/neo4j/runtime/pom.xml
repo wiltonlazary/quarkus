@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>quarkus-neo4j-parent</artifactId>
         <groupId>io.quarkus</groupId>
@@ -11,7 +11,7 @@
 
     <artifactId>quarkus-neo4j</artifactId>
     <name>Quarkus - Neo4j - Runtime</name>
-    <description>A client for the Neo4j graph datastore</description>
+    <description>Connect to Neo4j graph datastore</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -26,14 +26,16 @@
             <artifactId>quarkus-smallrye-health</artifactId>
             <optional>true</optional>
         </dependency>
-        <dependency>
-            <groupId>org.graalvm.nativeimage</groupId>
-            <artifactId>svm</artifactId>
-        </dependency>
 
         <dependency>
             <groupId>org.neo4j.driver</groupId>
             <artifactId>neo4j-java-driver</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-junit5-internal</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

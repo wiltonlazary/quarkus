@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -12,7 +12,7 @@
 
     <artifactId>quarkus-smallrye-reactive-messaging-kafka</artifactId>
     <name>Quarkus - SmallRye Reactive Messaging - Kafka - Runtime</name>
-    <description>Kafka reactive messaging connector</description>
+    <description>Connect to Kafka with Reactive Messaging</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -36,7 +36,11 @@
             <groupId>io.vertx</groupId>
             <artifactId>vertx-kafka-client</artifactId>
             <exclusions>
-                <exclusion>
+               <exclusion>
+	                <groupId>com.google.code.findbugs</groupId>
+                    <artifactId>jsr305</artifactId>
+               </exclusion>
+               <exclusion>
                     <groupId>log4j</groupId>
                     <artifactId>log4j</artifactId>
                 </exclusion>
@@ -68,6 +72,7 @@
         <dependency>
             <groupId>org.graalvm.nativeimage</groupId>
             <artifactId>svm</artifactId>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 

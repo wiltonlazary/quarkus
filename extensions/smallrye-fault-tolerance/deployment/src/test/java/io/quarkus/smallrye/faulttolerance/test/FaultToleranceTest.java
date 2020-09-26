@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -44,6 +45,8 @@ public class FaultToleranceTest {
     RetryBean retry;
     @Inject
     CircuitBreakerBean circuitbreaker;
+    @Inject
+    CircuitBreakerBean.Observer circuitBreakerObserver;
     @Inject
     AsynchronousBean asynchronous;
 
@@ -94,10 +97,11 @@ public class FaultToleranceTest {
         assertThrows(RuntimeException.class, () -> circuitbreaker.breakCircuit());
         assertThrows(RuntimeException.class, () -> circuitbreaker.breakCircuit());
         assertThrows(CircuitBreakerOpenException.class, () -> circuitbreaker.breakCircuit());
+        assertTrue(circuitBreakerObserver.isOpen());
     }
 
     @Test
-    public void testAsynchronous() {
-        asynchronous.asynchronous().thenAccept(s -> assertEquals("hello", s));
+    public void testAsynchronous() throws ExecutionException, InterruptedException {
+        assertEquals("hello", asynchronous.asynchronous().toCompletableFuture().get());
     }
 }

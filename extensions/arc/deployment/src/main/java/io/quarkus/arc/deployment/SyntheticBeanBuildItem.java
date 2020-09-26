@@ -9,12 +9,14 @@ import org.jboss.jandex.DotName;
 import io.quarkus.arc.processor.BeanConfigurator;
 import io.quarkus.arc.processor.BeanConfiguratorBase;
 import io.quarkus.builder.item.MultiBuildItem;
+import io.quarkus.deployment.annotations.ExecutionTime;
 import io.quarkus.runtime.RuntimeValue;
 
 /**
  * Makes it possible to register a synthetic bean whose instance can be easily produced through a recorder.
  * 
  * @see BeanConfigurator
+ * @see ExtendedBeanConfigurator#setRuntimeInit()
  */
 public final class SyntheticBeanBuildItem extends MultiBuildItem {
 
@@ -36,6 +38,10 @@ public final class SyntheticBeanBuildItem extends MultiBuildItem {
         return configurator;
     }
 
+    public boolean isStaticInit() {
+        return configurator.staticInit;
+    }
+
     /**
      * This construct is not thread-safe and should not be reused.
      */
@@ -43,9 +49,11 @@ public final class SyntheticBeanBuildItem extends MultiBuildItem {
 
         Supplier<?> supplier;
         RuntimeValue<?> runtimeValue;
+        boolean staticInit;
 
         ExtendedBeanConfigurator(DotName implClazz) {
             super(implClazz);
+            this.staticInit = true;
         }
 
         /**
@@ -70,6 +78,23 @@ public final class SyntheticBeanBuildItem extends MultiBuildItem {
 
         public ExtendedBeanConfigurator runtimeValue(RuntimeValue<?> runtimeValue) {
             this.runtimeValue = runtimeValue;
+            return this;
+        }
+
+        /**
+         * By default, synthetic beans are initialized during {@link ExecutionTime#STATIC_INIT}. It is possible to mark a
+         * synthetic bean to be initialized during {@link ExecutionTime#RUNTIME_INIT}. However, in such case a client that
+         * attempts to obtain such bean during {@link ExecutionTime#STATIC_INIT} or before runtime-init synthetic beans are
+         * initialized will receive an exception.
+         * <p>
+         * {@link ExecutionTime#RUNTIME_INIT} build steps that access a runtime-init synthetic bean should consume the
+         * {@link SyntheticBeansRuntimeInitBuildItem}.
+         * 
+         * @return self
+         * @see SyntheticBeansRuntimeInitBuildItem
+         */
+        public ExtendedBeanConfigurator setRuntimeInit() {
+            this.staticInit = false;
             return this;
         }
 

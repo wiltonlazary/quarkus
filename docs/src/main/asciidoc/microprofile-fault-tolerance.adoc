@@ -21,7 +21,7 @@ To complete this guide, you need:
 * less than 15 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 
 == The Scenario
 
@@ -49,14 +49,32 @@ First, we need a new project. Create a new project with the following command:
 mvn io.quarkus:quarkus-maven-plugin:{quarkus-version}:create \
     -DprojectGroupId=org.acme \
     -DprojectArtifactId=microprofile-fault-tolerance-quickstart \
-    -DclassName="org.acme.faulttolerance.CoffeeResource" \
+    -DclassName="org.acme.microprofile.faulttolerance.CoffeeResource" \
     -Dpath="/coffee" \
     -Dextensions="smallrye-fault-tolerance, resteasy-jsonb"
 cd microprofile-fault-tolerance-quickstart
 ----
 
 This command generates a Maven structure, importing the extensions for RESTEasy/JAX-RS
-and Smallrye Fault Tolerance, which is an implementation of the MicroProfile Fault Tolerance spec that Quarkus uses.
+and SmallRye Fault Tolerance, which is an implementation of the MicroProfile Fault Tolerance spec that Quarkus uses.
+
+If you already have your Quarkus project configured, you can add the `smallrye-fault-tolerance` extension
+to your project by running the following command in your project base directory:
+
+[source,bash]
+----
+./mvnw quarkus:add-extension -Dextensions="smallrye-fault-tolerance"
+----
+
+This will add the following to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-smallrye-fault-tolerance</artifactId>
+</dependency>
+----
 
 == Preparing an Application: REST Endpoint and CDI Bean
 
@@ -67,7 +85,7 @@ First, create a simple entity representing a coffee sample in our store:
 
 [source,java]
 ----
-package org.acme.faulttolerance;
+package org.acme.microprofile.faulttolerance;
 
 public class Coffee {
 
@@ -92,7 +110,7 @@ Let's continue with a simple CDI bean, that would work as a repository of our co
 
 [source,java]
 ----
-package org.acme.faulttolerance;
+package org.acme.microprofile.faulttolerance;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -133,11 +151,11 @@ public class CoffeeRepositoryService {
 }
 ----
 
-Finally, edit the `org.acme.faulttolerance.CoffeeResource` class as follows:
+Finally, edit the `org.acme.microprofile.faulttolerance.CoffeeResource` class as follows:
 
 [source,java]
 ----
-package org.acme.faulttolerance;
+package org.acme.microprofile.faulttolerance;
 
 import java.util.List;
 import java.util.Random;
@@ -373,7 +391,7 @@ public class CoffeeRepositoryService {
 }
 ----
 
-And inject the code bellow into the `CoffeeResource` endpoint:
+And inject the code below into the `CoffeeResource` endpoint:
 
 [source,java]
 ----
@@ -428,6 +446,39 @@ To test this out, do the following:
    and the `CoffeeRepositoryService#getAvailability()` method is not being called anymore.
 5. Give it 5 seconds during which circuit breaker should close and you should be able to make two successful requests
    again.
+
+== Runtime configuration
+
+You can override the annotations parameters at runtime inside your `application.properties` file.
+
+If we take the retry example that we already saw:
+
+[source,java]
+----
+package org.acme;
+
+import org.eclipse.microprofile.faulttolerance.Retry;
+...
+
+public class CoffeeResource {
+    ...
+    @GET
+    @Retry(maxRetries = 4)
+    public List<Coffee> coffees() {
+        ...
+    }
+    ...
+}
+----
+
+We can override the `maxRetries` parameter with 6 retries instead of 4 by the following configuration item:
+[source,properties]
+----
+org.acme.CoffeeResource/coffees/Retry/maxRetries=6
+----
+
+NOTE: The format is `fully-qualified-class-name/method-name/annotation-name/property-name=value`.
+You can also configure a property for all the annotation via `annotation-name/property-name=value`.
 
 == Conclusion
 

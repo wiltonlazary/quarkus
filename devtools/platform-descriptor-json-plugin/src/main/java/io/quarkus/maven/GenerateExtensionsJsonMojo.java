@@ -9,6 +9,7 @@ import java.io.StringReader;
 import java.nio.file.FileSystem;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -17,6 +18,7 @@ import java.util.Map;
 import javax.json.Json;
 import javax.json.JsonArray;
 import javax.json.JsonArrayBuilder;
+import javax.json.JsonException;
 import javax.json.JsonObject;
 import javax.json.JsonObjectBuilder;
 import javax.json.JsonReader;
@@ -25,6 +27,7 @@ import javax.json.JsonWriter;
 import javax.json.JsonWriterFactory;
 import javax.json.stream.JsonGenerator;
 
+import org.apache.maven.model.Model;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
@@ -54,6 +57,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 
 import io.quarkus.bootstrap.BootstrapConstants;
+import io.quarkus.bootstrap.resolver.maven.workspace.ModelUtils;
 import io.quarkus.bootstrap.util.ZipUtils;
 import io.quarkus.dependencies.Extension;
 import io.quarkus.platform.tools.ToolsConstants;
@@ -75,8 +79,9 @@ public class GenerateExtensionsJsonMojo extends AbstractMojo {
     @Parameter(property = "bomVersion", defaultValue = "${project.version}")
     private String bomVersion;
 
+    /** file used for overrides - overridesFiles takes precedence over this file. **/
     @Parameter(property = "overridesFile", defaultValue = "${project.basedir}/src/main/resources/extensions-overrides.json")
-    private File overridesFile;
+    private String overridesFile;
 
     @Parameter(property = "outputFile", defaultValue = "${project.build.directory}/extensions.json")
     private File outputFile;
@@ -106,41 +111,22 @@ public class GenerateExtensionsJsonMojo extends AbstractMojo {
         final DefaultArtifact bomArtifact = new DefaultArtifact(bomGroupId, bomArtifactId, "", "pom", bomVersion);
         info("Generating catalog of extensions for %s", bomArtifact);
 
-        // And get all its dependencies (which are extensions)
-        final List<Dependency> deps;
-        try {
-            deps = repoSystem
-                    .readArtifactDescriptor(repoSession,
-                            new ArtifactDescriptorRequest().setRepositories(repos).setArtifact(bomArtifact))
-                    .getManagedDependencies();
-        } catch (ArtifactDescriptorException e) {
-            throw new MojoExecutionException("Failed to read descriptor of " + bomArtifact, e);
+        // if the BOM is generated and has replaced the original one, to pick up the generated content
+        // we are first trying to read the dependencies from the project's POM file
+        List<Dependency> deps = readManagedDepsFromPom();
+        if (deps == null) {
+            deps = resolveManagedDeps(bomArtifact);
         }
         if (deps.isEmpty()) {
             getLog().warn("BOM " + bomArtifact + " does not include any dependency");
             return;
         }
 
-        // Read the overrides file for the extensions (if it exists)
-        Map<String, JsonObject> extOverrides = new HashMap<>();
-        JsonObject theRest = null;
-        if (overridesFile.isFile()) {
-            info("Found overrides file %s", overridesFile);
-            try (JsonReader jsonReader = Json.createReader(new FileInputStream(overridesFile))) {
-                JsonObject overridesObject = jsonReader.readObject();
-                JsonArray extOverrideObjects = overridesObject.getJsonArray("extensions");
-                if (extOverrideObjects != null) {
-                    // Put the extension overrides into a map keyed to their GAV
-                    for (JsonValue val : extOverrideObjects) {
-                        JsonObject extOverrideObject = val.asJsonObject();
-                        String key = extensionId(extOverrideObject);
-                        extOverrides.put(key, extOverrideObject);
-                    }
-                }
-
-                theRest = overridesObject;
-            } catch (IOException e) {
-                throw new MojoExecutionException("Failed to read " + overridesFile, e);
+        List<OverrideInfo> allOverrides = new ArrayList<>();
+        for (String path : overridesFile.split(",")) {
+            OverrideInfo overrideInfo = getOverrideInfo(new File(path.trim()));
+            if (overrideInfo != null) {
+                allOverrides.add(overrideInfo);
             }
         }
 
@@ -166,9 +152,11 @@ public class GenerateExtensionsJsonMojo extends AbstractMojo {
                 JsonObject extObject = processDependency(resolved.getArtifact());
                 if (extObject != null) {
                     String key = extensionId(extObject);
-                    JsonObject extOverride = extOverrides.get(key);
-                    if (extOverride != null) {
-                        extObject = mergeObject(extObject, extOverride);
+                    for (OverrideInfo info : allOverrides) {
+                        JsonObject extOverride = info.getExtOverrides().get(key);
+                        if (extOverride != null) {
+                            extObject = mergeObject(extObject, extOverride);
+                        }
                     }
                     extListJson.add(extObject);
                 }
@@ -197,18 +185,21 @@ public class GenerateExtensionsJsonMojo extends AbstractMojo {
         // And add the list of extensions
         platformJson.add("extensions", extListJson.build());
 
-        if (theRest != null) {
-            theRest.forEach((key, item) -> {
-                // Ignore the two keys we are explicitly managing
-                // but then add anything else found.
-                // TODO: make a real merge if needed eventually.
-                if (!"bom".equals(key) && !"extensions".equals(key)) {
-                    platformJson.add(key, item);
+        for (OverrideInfo info : allOverrides) {
 
-                }
-            });
+            if (info.getTheRest() != null) {
+                info.getTheRest().forEach((key, item) -> {
+                    // Ignore the two keys we are explicitly managing
+                    // but then add anything else found.
+                    // TODO: if multiple files the last one wins!
+                    // meaning effectively only "extensions" are merged, the rest are full overrides.
+                    // TODO: make a real merge if needed eventually.
+                    if (!"bom".equals(key) && !"extensions".equals(key)) {
+                        platformJson.add(key, item);
+                    }
+                });
+            }
         }
-
         // Write the JSON to the output file
         final File outputDir = outputFile.getParentFile();
         if (!outputDir.exists()) {
@@ -220,12 +211,63 @@ public class GenerateExtensionsJsonMojo extends AbstractMojo {
                 .createWriterFactory(Collections.singletonMap(JsonGenerator.PRETTY_PRINTING, true));
         try (JsonWriter jsonWriter = jsonWriterFactory.createWriter(new FileOutputStream(outputFile))) {
             jsonWriter.writeObject(platformJson.build());
-        } catch (IOException e) {
+        } catch (JsonException | IOException e) {
             throw new MojoExecutionException("Failed to persist " + outputFile, e);
         }
         info("Extensions file written to %s", outputFile);
 
         projectHelper.attachArtifact(project, "json", null, outputFile);
+    }
+
+    private List<Dependency> resolveManagedDeps(Artifact bomArtifact) throws MojoExecutionException {
+        try {
+            return repoSystem
+                    .readArtifactDescriptor(repoSession,
+                            new ArtifactDescriptorRequest().setRepositories(repos).setArtifact(bomArtifact))
+                    .getManagedDependencies();
+        } catch (ArtifactDescriptorException e) {
+            throw new MojoExecutionException("Failed to read descriptor of " + bomArtifact, e);
+        }
+    }
+
+    private List<Dependency> readManagedDepsFromPom() throws MojoExecutionException {
+        // if the configured BOM coordinates are not matching the current project
+        // the current project's POM isn't the right source
+        if (!project.getArtifact().getArtifactId().equals(bomArtifactId)
+                || !project.getArtifact().getVersion().equals(bomVersion)
+                || !project.getArtifact().getGroupId().equals(bomGroupId)
+                || !project.getFile().exists()) {
+            return null;
+        }
+
+        final Model bomModel;
+        try {
+            bomModel = ModelUtils.readModel(project.getFile().toPath());
+        } catch (IOException e) {
+            throw new MojoExecutionException("Failed to parse " + project.getFile(), e);
+        }
+
+        // if the POM has a parent then we better resolve the descriptor
+        if (bomModel.getParent() != null) {
+            return null;
+        }
+
+        if (bomModel.getDependencyManagement() == null) {
+            return Collections.emptyList();
+        }
+        final List<org.apache.maven.model.Dependency> modelDeps = bomModel.getDependencyManagement().getDependencies();
+        if (modelDeps.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        final List<Dependency> deps = new ArrayList<>(modelDeps.size());
+        for (org.apache.maven.model.Dependency modelDep : modelDeps) {
+            final Artifact artifact = new DefaultArtifact(modelDep.getGroupId(), modelDep.getArtifactId(),
+                    modelDep.getClassifier(), modelDep.getType(), modelDep.getVersion());
+            // exclusions aren't relevant in this context
+            deps.add(new Dependency(artifact, modelDep.getScope(), modelDep.isOptional(), Collections.emptyList()));
+        }
+        return deps;
     }
 
     private JsonObject processDependency(Artifact artifact) throws IOException {
@@ -418,4 +460,58 @@ public class GenerateExtensionsJsonMojo extends AbstractMojo {
 
     }
 
+    public OverrideInfo getOverrideInfo(File overridesFile) throws MojoExecutionException {
+        // Read the overrides file for the extensions (if it exists)
+        HashMap extOverrides = new HashMap<>();
+        JsonObject theRest = null;
+        if (overridesFile.isFile()) {
+            info("Found overrides file %s", overridesFile);
+            try (JsonReader jsonReader = Json.createReader(new FileInputStream(overridesFile))) {
+                JsonObject overridesObject = jsonReader.readObject();
+                JsonArray extOverrideObjects = overridesObject.getJsonArray("extensions");
+                if (extOverrideObjects != null) {
+                    // Put the extension overrides into a map keyed to their GAV
+                    for (JsonValue val : extOverrideObjects) {
+                        JsonObject extOverrideObject = val.asJsonObject();
+                        String key = extensionId(extOverrideObject);
+                        extOverrides.put(key, extOverrideObject);
+                    }
+                }
+
+                theRest = overridesObject;
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to read " + overridesFile, e);
+            }
+            return new OverrideInfo(extOverrides, theRest);
+
+        } else {
+            throw new MojoExecutionException(overridesFile + " not found.");
+        }
+    }
+
+    private static class OverrideInfo {
+        private Map<String, JsonObject> extOverrides;
+        private JsonObject theRest;
+
+        public OverrideInfo(Map<String, JsonObject> extOverrides, JsonObject theRest) {
+            this.extOverrides = extOverrides;
+            this.theRest = theRest;
+        }
+
+        public Map<String, JsonObject> getExtOverrides() {
+            return extOverrides;
+        }
+
+        public JsonObject getTheRest() {
+            return theRest;
+        }
+
+        public void setExtOverrides(Map<String, JsonObject> extOverrides) {
+            this.extOverrides = extOverrides;
+        }
+
+        public void setTheRest(JsonObject theRest) {
+            this.theRest = theRest;
+        }
+    }
 }

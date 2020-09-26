@@ -1,13 +1,16 @@
 package io.quarkus.maven;
 
-import java.io.IOException;
+import java.net.URL;
+import java.util.List;
 
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 
-import io.quarkus.cli.commands.ListExtensions;
-import io.quarkus.cli.commands.file.BuildFile;
+import io.quarkus.devtools.commands.ListExtensions;
+import io.quarkus.devtools.messagewriter.MessageWriter;
+import io.quarkus.devtools.project.QuarkusProject;
+import io.quarkus.registry.DefaultExtensionRegistry;
 
 /**
  * List the available extensions.
@@ -16,7 +19,7 @@ import io.quarkus.cli.commands.file.BuildFile;
  * You can list all extension or just installable. Choose between 3 output formats: name, concise and full.
  */
 @Mojo(name = "list-extensions", requiresProject = false)
-public class ListExtensionsMojo extends BuildFileMojoBase {
+public class ListExtensionsMojo extends QuarkusProjectMojoBase {
 
     /**
      * List all extensions or just the installable.
@@ -37,11 +40,24 @@ public class ListExtensionsMojo extends BuildFileMojoBase {
     @Parameter(property = "searchPattern", alias = "quarkus.extension.searchPattern")
     protected String searchPattern;
 
+    /**
+     * The extension registry URLs
+     */
+    @Parameter(property = "registry", alias = "quarkus.extension.registry")
+    List<URL> registries;
+
     @Override
-    public void doExecute(BuildFile buildFile) throws MojoExecutionException {
+    public void doExecute(final QuarkusProject quarkusProject, final MessageWriter log) throws MojoExecutionException {
         try {
-            new ListExtensions(buildFile).listExtensions(all, format, searchPattern);
-        } catch (IOException e) {
+            ListExtensions listExtensions = new ListExtensions(quarkusProject)
+                    .all(all)
+                    .format(format)
+                    .search(searchPattern);
+            if (registries != null && !registries.isEmpty()) {
+                listExtensions.extensionRegistry(DefaultExtensionRegistry.fromURLs(registries));
+            }
+            listExtensions.execute();
+        } catch (Exception e) {
             throw new MojoExecutionException("Failed to list extensions", e);
         }
     }

@@ -32,12 +32,19 @@ final class Execution {
     private final Set<ItemId> finalIds;
     private final ConcurrentHashMap<StepInfo, BuildContext> contextCache = new ConcurrentHashMap<>();
     private final EnhancedQueueExecutor executor;
-    private final List<Diagnostic> diagnostics = new ArrayList<>();
+    private final List<Diagnostic> diagnostics = Collections.synchronizedList(new ArrayList<>());
     private final String buildTargetName;
     private final AtomicBoolean errorReported = new AtomicBoolean();
     private final AtomicInteger lastStepCount = new AtomicInteger();
     private volatile Thread runningThread;
     private volatile boolean done;
+
+    static {
+        try {
+            Class.forName("org.jboss.threads.EnhancedQueueExecutor$1", false, Execution.class.getClassLoader());
+        } catch (ClassNotFoundException ignored) {
+        }
+    }
 
     Execution(final BuildExecutionBuilder builder, final Set<ItemId> finalIds) {
         chain = builder.getChain();
@@ -45,6 +52,7 @@ final class Execution {
         this.multis = new ConcurrentHashMap<>(builder.getInitialMulti());
         this.finalIds = finalIds;
         final EnhancedQueueExecutor.Builder executorBuilder = new EnhancedQueueExecutor.Builder();
+        executorBuilder.setRegisterMBean(false);
         executorBuilder.setCorePoolSize(8).setMaximumPoolSize(1024);
         executorBuilder.setExceptionHandler(JBossExecutors.loggingExceptionHandler());
         executorBuilder.setThreadFactory(new JBossThreadFactory(new ThreadGroup("build group"), Boolean.FALSE, null, "build-%t",
@@ -61,7 +69,7 @@ final class Execution {
     }
 
     BuildContext getBuildContext(StepInfo stepInfo) {
-        return contextCache.computeIfAbsent(stepInfo, si -> new BuildContext(si, this));
+        return contextCache.computeIfAbsent(stepInfo, si -> new BuildContext(chain.getClassLoader(), si, this));
     }
 
     void removeBuildContext(StepInfo stepInfo, BuildContext buildContext) {

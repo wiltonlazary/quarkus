@@ -53,6 +53,19 @@ public class BookResource {
     }
 
     @GET
+    @Path("/name/{name}/contains")
+    @Produces("application/json")
+    public List<Book> byNameContainingIgnoreCase(@PathParam("name") String name) {
+        return bookRepository.findByNameContainingIgnoreCase(name);
+    }
+
+    @GET
+    @Path("/name/{name}/count/like")
+    public long countByNameStartsWithIgnoreCase(@PathParam("name") String name) {
+        return bookRepository.countByNameStartsWithIgnoreCase(name);
+    }
+
+    @GET
     @Path("/year/{year}")
     @Produces("application/json")
     public Response findByPublicationYear(@PathParam("year") Integer year) {
@@ -86,6 +99,20 @@ public class BookResource {
         Objects.requireNonNull(first);
 
         return list;
+    }
+
+    @GET
+    @Path("/customPublicationYearPrimitive/{bid}")
+    @Produces("text/plain")
+    public Integer customFindPublicationYearPrimitive(@PathParam("bid") Integer bid) {
+        return bookRepository.customFindPublicationYearPrimitive(bid);
+    }
+
+    @GET
+    @Path("/customPublicationYearObject/{bid}")
+    @Produces("text/plain")
+    public Integer customFindPublicationYearObject(@PathParam("bid") Integer bid) {
+        return bookRepository.customFindPublicationYearObject(bid);
     }
 
 }

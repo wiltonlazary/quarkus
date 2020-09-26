@@ -22,7 +22,7 @@ public class PostResourceTest {
         assertThat(posts)
                 .hasSize(3)
                 .filteredOn(p -> p.getTitle().contains("first"))
-                .hasOnlyOneElementSatisfying(p -> {
+                .singleElement().satisfies(p -> {
                     assertThat(p.getComments()).hasSize(2);
                 });
     }
@@ -38,5 +38,34 @@ public class PostResourceTest {
         when().get("/post/postedBeforeNow").then()
                 .statusCode(200)
                 .body("size()", is(3));
+    }
+
+    @Test
+    void testByByOrganization() {
+        when().get("/post/organization/RH").then()
+                .statusCode(200)
+                .body("size()", is(3));
+
+        when().get("/post/organization/RHT").then()
+                .statusCode(200)
+                .body("size()", is(0));
+    }
+
+    @Test
+    void testPostCommentByPostId() {
+        when().get("/post/postComment/postId/1").then()
+                .statusCode(200)
+                .body("size()", is(2));
+
+        when().get("/post/postComment/postId/10").then()
+                .statusCode(200)
+                .body("size()", is(0));
+    }
+
+    @Test
+    void testAllPostComment() {
+        when().get("/post/postComment/all").then()
+                .statusCode(200)
+                .body("size()", is(2));
     }
 }

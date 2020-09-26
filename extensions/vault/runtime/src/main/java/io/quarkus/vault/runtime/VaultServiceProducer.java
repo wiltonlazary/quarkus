@@ -5,13 +5,22 @@ import javax.enterprise.context.ApplicationScoped;
 import javax.enterprise.inject.Produces;
 import javax.inject.Named;
 
-import io.quarkus.vault.CredentialsProvider;
+import io.quarkus.credentials.CredentialsProvider;
 import io.quarkus.vault.VaultKVSecretEngine;
+import io.quarkus.vault.VaultSystemBackendEngine;
+import io.quarkus.vault.VaultTOTPSecretEngine;
 import io.quarkus.vault.VaultTransitSecretEngine;
+import io.quarkus.vault.runtime.config.VaultBuildTimeConfig;
 import io.quarkus.vault.runtime.config.VaultRuntimeConfig;
 
 @ApplicationScoped
 public class VaultServiceProducer {
+
+    @Produces
+    @ApplicationScoped
+    public VaultSystemBackendEngine createVaultSystemBackendEngine() {
+        return VaultManager.getInstance().getVaultSystemBackendManager();
+    }
 
     @Produces
     @ApplicationScoped
@@ -27,6 +36,18 @@ public class VaultServiceProducer {
 
     @Produces
     @ApplicationScoped
+    public VaultTOTPSecretEngine createVaultTOTPSecretEngine() {
+        return VaultManager.getInstance().getVaultTOTPManager();
+    }
+
+    @Produces
+    @ApplicationScoped
+    public VaultKubernetesAuthManager createVaultKubernetesAuthManager() {
+        return VaultManager.getInstance().getVaultKubernetesAuthManager();
+    }
+
+    @Produces
+    @ApplicationScoped
     @Named("vault-credentials-provider")
     public CredentialsProvider createCredentialsProvider() {
         return VaultManager.getInstance().getVaultCredentialsProvider();
@@ -37,7 +58,7 @@ public class VaultServiceProducer {
         VaultManager.reset();
     }
 
-    public void setVaultRuntimeConfig(VaultRuntimeConfig serverConfig) {
-        VaultManager.init(serverConfig);
+    public void setVaultConfigs(VaultBuildTimeConfig buildTimeConfig, VaultRuntimeConfig serverConfig) {
+        VaultManager.init(buildTimeConfig, serverConfig);
     }
 }

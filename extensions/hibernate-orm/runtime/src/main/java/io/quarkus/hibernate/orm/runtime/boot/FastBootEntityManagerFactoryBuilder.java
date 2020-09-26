@@ -8,14 +8,17 @@ import javax.persistence.EntityNotFoundException;
 import javax.persistence.PersistenceException;
 import javax.sql.DataSource;
 
+import org.hibernate.MultiTenancyStrategy;
 import org.hibernate.SessionFactory;
 import org.hibernate.SessionFactoryObserver;
-import org.hibernate.boot.SessionFactoryBuilder;
+import org.hibernate.boot.internal.SessionFactoryOptionsBuilder;
 import org.hibernate.boot.registry.StandardServiceRegistry;
 import org.hibernate.boot.registry.selector.spi.StrategySelector;
-import org.hibernate.boot.spi.MetadataImplementor;
-import org.hibernate.boot.spi.SessionFactoryBuilderImplementor;
+import org.hibernate.bytecode.internal.SessionFactoryObserverForBytecodeEnhancer;
+import org.hibernate.bytecode.spi.BytecodeProvider;
+import org.hibernate.engine.query.spi.HQLQueryPlan;
 import org.hibernate.engine.spi.SessionFactoryImplementor;
+import org.hibernate.internal.SessionFactoryImpl;
 import org.hibernate.jpa.AvailableSettings;
 import org.hibernate.jpa.boot.spi.EntityManagerFactoryBuilder;
 import org.hibernate.proxy.EntityNotFoundDelegate;
@@ -26,25 +29,30 @@ import org.hibernate.tool.schema.spi.DelayedDropRegistryNotAvailableImpl;
 import org.hibernate.tool.schema.spi.SchemaManagementToolCoordinator;
 
 import io.quarkus.hibernate.orm.runtime.RuntimeSettings;
+import io.quarkus.hibernate.orm.runtime.recording.PrevalidatedQuarkusMetadata;
+import io.quarkus.hibernate.orm.runtime.tenant.HibernateCurrentTenantIdentifierResolver;
 
-public final class FastBootEntityManagerFactoryBuilder implements EntityManagerFactoryBuilder {
+public class FastBootEntityManagerFactoryBuilder implements EntityManagerFactoryBuilder {
 
-    private final MetadataImplementor metadata;
-    private final String persistenceUnitName;
-    private final StandardServiceRegistry standardServiceRegistry;
+    protected final PrevalidatedQuarkusMetadata metadata;
+    protected final String persistenceUnitName;
+    protected final StandardServiceRegistry standardServiceRegistry;
     private final RuntimeSettings runtimeSettings;
     private final Object validatorFactory;
     private final Object cdiBeanManager;
+    protected final MultiTenancyStrategy multiTenancyStrategy;
 
-    public FastBootEntityManagerFactoryBuilder(MetadataImplementor metadata, String persistenceUnitName,
+    public FastBootEntityManagerFactoryBuilder(
+            PrevalidatedQuarkusMetadata metadata, String persistenceUnitName,
             StandardServiceRegistry standardServiceRegistry, RuntimeSettings runtimeSettings, Object validatorFactory,
-            Object cdiBeanManager) {
+            Object cdiBeanManager, MultiTenancyStrategy strategy) {
         this.metadata = metadata;
         this.persistenceUnitName = persistenceUnitName;
         this.standardServiceRegistry = standardServiceRegistry;
         this.runtimeSettings = runtimeSettings;
         this.validatorFactory = validatorFactory;
         this.cdiBeanManager = cdiBeanManager;
+        this.multiTenancyStrategy = strategy;
     }
 
     @Override
@@ -59,10 +67,10 @@ public final class FastBootEntityManagerFactoryBuilder implements EntityManagerF
 
     @Override
     public EntityManagerFactory build() {
-        SessionFactoryBuilder sfBuilder = metadata.getSessionFactoryBuilder();
-        populate(sfBuilder, standardServiceRegistry);
         try {
-            return sfBuilder.build();
+            final SessionFactoryOptionsBuilder optionsBuilder = metadata.buildSessionFactoryOptionsBuilder();
+            populate(persistenceUnitName, optionsBuilder, standardServiceRegistry, multiTenancyStrategy);
+            return new SessionFactoryImpl(metadata.getOriginalMetadata(), optionsBuilder.buildOptions(), HQLQueryPlan::new);
         } catch (Exception e) {
             throw persistenceException("Unable to build Hibernate SessionFactory", e);
         }
@@ -75,13 +83,7 @@ public final class FastBootEntityManagerFactoryBuilder implements EntityManagerF
 
     @Override
     public void generateSchema() {
-        // This seems overkill, but building the SF is necessary to get the Integrators
-        // to kick in.
-        // Metamodel will clean this up...
         try {
-            SessionFactoryBuilder sfBuilder = metadata.getSessionFactoryBuilder();
-            populate(sfBuilder, standardServiceRegistry);
-
             SchemaManagementToolCoordinator.process(metadata, standardServiceRegistry, runtimeSettings.getSettings(),
                     DelayedDropRegistryNotAvailableImpl.INSTANCE);
         } catch (Exception e) {
@@ -92,7 +94,7 @@ public final class FastBootEntityManagerFactoryBuilder implements EntityManagerF
         cancel();
     }
 
-    private PersistenceException persistenceException(String message, Exception cause) {
+    protected PersistenceException persistenceException(String message, Exception cause) {
         // Provide a comprehensible message if there is an issue with SSL support
         Throwable t = cause;
         while (t != null) {
@@ -117,20 +119,21 @@ public final class FastBootEntityManagerFactoryBuilder implements EntityManagerF
         return "[PersistenceUnit: " + persistenceUnitName + "] ";
     }
 
-    protected void populate(SessionFactoryBuilder sfBuilder, StandardServiceRegistry ssr) {
+    protected void populate(String persistenceUnitName, SessionFactoryOptionsBuilder options, StandardServiceRegistry ssr,
+            MultiTenancyStrategy strategy) {
 
         // will use user override value or default to false if not supplied to follow
         // JPA spec.
         final boolean jtaTransactionAccessEnabled = runtimeSettings.getBoolean(
                 AvailableSettings.ALLOW_JTA_TRANSACTION_ACCESS);
         if (!jtaTransactionAccessEnabled) {
-            ((SessionFactoryBuilderImplementor) sfBuilder).disableJtaTransactionAccess();
+            options.disableJtaTransactionAccess();
         }
 
         final boolean allowRefreshDetachedEntity = runtimeSettings.getBoolean(
                 org.hibernate.cfg.AvailableSettings.ALLOW_REFRESH_DETACHED_ENTITY);
         if (!allowRefreshDetachedEntity) {
-            ((SessionFactoryBuilderImplementor) sfBuilder).disableRefreshDetachedEntity();
+            options.disableRefreshDetachedEntity();
         }
 
         // Locate and apply any requested SessionFactoryObserver
@@ -140,19 +143,31 @@ public final class FastBootEntityManagerFactoryBuilder implements EntityManagerF
             final StrategySelector strategySelector = ssr.getService(StrategySelector.class);
             final SessionFactoryObserver suppliedSessionFactoryObserver = strategySelector
                     .resolveStrategy(SessionFactoryObserver.class, sessionFactoryObserverSetting);
-            sfBuilder.addSessionFactoryObservers(suppliedSessionFactoryObserver);
+            options.addSessionFactoryObservers(suppliedSessionFactoryObserver);
         }
 
-        sfBuilder.addSessionFactoryObservers(new ServiceRegistryCloser());
+        options.addSessionFactoryObservers(new ServiceRegistryCloser());
 
-        sfBuilder.applyEntityNotFoundDelegate(new JpaEntityNotFoundDelegate());
+        options.applyEntityNotFoundDelegate(new JpaEntityNotFoundDelegate());
 
         if (this.validatorFactory != null) {
-            sfBuilder.applyValidatorFactory(validatorFactory);
+            options.applyValidatorFactory(validatorFactory);
         }
         if (this.cdiBeanManager != null) {
-            sfBuilder.applyBeanManager(cdiBeanManager);
+            options.applyBeanManager(cdiBeanManager);
         }
+
+        //Small memory optimisations: ensure the class transformation caches of the bytecode enhancer
+        //are cleared both on start and on close of the SessionFactory.
+        //(On start is useful especially in Quarkus as we won't do any more enhancement after this point)
+        BytecodeProvider bytecodeProvider = ssr.getService(BytecodeProvider.class);
+        options.addSessionFactoryObservers(new SessionFactoryObserverForBytecodeEnhancer(bytecodeProvider));
+
+        if (strategy != null && strategy != MultiTenancyStrategy.NONE) {
+            options.applyMultiTenancyStrategy(strategy);
+            options.applyCurrentTenantIdentifierResolver(new HibernateCurrentTenantIdentifierResolver(persistenceUnitName));
+        }
+
     }
 
     private static class ServiceRegistryCloser implements SessionFactoryObserver {

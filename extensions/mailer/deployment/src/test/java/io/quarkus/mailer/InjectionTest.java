@@ -13,6 +13,8 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
+import io.quarkus.mailer.MailTemplate.MailTemplateInstance;
+import io.quarkus.qute.api.CheckedTemplate;
 import io.quarkus.qute.api.ResourcePath;
 import io.quarkus.test.QuarkusUnitTest;
 import io.vertx.ext.mail.MailClient;
@@ -33,6 +35,10 @@ public class InjectionTest {
                     .addAsResource(new StringAsset(""
                             + "{name}"), "templates/test1.txt")
                     .addAsResource(new StringAsset(""
+                            + "<html>{name}</html>"), "templates/MailTemplates/testNative.html")
+                    .addAsResource(new StringAsset(""
+                            + "{name}"), "templates/MailTemplates/testNative.txt")
+                    .addAsResource(new StringAsset(""
                             + "<html>{name}</html>"), "templates/mails/test2.html"));
 
     @Inject
@@ -45,7 +51,13 @@ public class InjectionTest {
     BeanUsingRxClient beanUsingRx;
 
     @Inject
+    BeanUsingMutinyClient beanUsingMutiny;
+
+    @Inject
     BeanUsingReactiveMailer beanUsingReactiveMailer;
+
+    @Inject
+    BeanUsingLegacyReactiveMailer beanUsingLegacyReactiveMailer;
 
     @Inject
     BeanUsingBlockingMailer beanUsingBlockingMailer;
@@ -55,13 +67,16 @@ public class InjectionTest {
 
     @Test
     public void testInjection() {
+        beanUsingMutiny.verify();
         beanUsingAxle.verify();
         beanUsingBare.verify();
         beanUsingRx.verify();
         beanUsingBlockingMailer.verify();
-        beanUsingReactiveMailer.verify();
+        beanUsingReactiveMailer.verify().toCompletableFuture().join();
+        beanUsingLegacyReactiveMailer.verify().toCompletableFuture().join();
         templates.send1();
         templates.send2().toCompletableFuture().join();
+        templates.sendNative().toCompletableFuture().join();
     }
 
     @ApplicationScoped
@@ -98,7 +113,30 @@ public class InjectionTest {
     }
 
     @ApplicationScoped
+    static class BeanUsingMutinyClient {
+
+        @Inject
+        io.vertx.mutiny.ext.mail.MailClient client;
+
+        void verify() {
+            Assertions.assertNotNull(client);
+        }
+    }
+
+    @ApplicationScoped
     static class BeanUsingReactiveMailer {
+
+        @Inject
+        io.quarkus.mailer.reactive.ReactiveMailer mailer;
+
+        CompletionStage<Void> verify() {
+            return mailer.send(Mail.withText("quarkus@quarkus.io", "test mailer", "reactive test!"))
+                    .subscribeAsCompletionStage();
+        }
+    }
+
+    @ApplicationScoped
+    static class BeanUsingLegacyReactiveMailer {
 
         @Inject
         ReactiveMailer mailer;
@@ -122,6 +160,11 @@ public class InjectionTest {
     @Singleton
     static class MailTemplates {
 
+        @CheckedTemplate
+        static class Templates {
+            public static native MailTemplateInstance testNative(String name);
+        }
+
         @Inject
         MailTemplate test1;
 
@@ -136,5 +179,8 @@ public class InjectionTest {
             return testMail.to("quarkus@quarkus.io").subject("Test").data("name", "Lu").send();
         }
 
+        CompletionStage<Void> sendNative() {
+            return Templates.testNative("John").to("quarkus@quarkus.io").subject("Test").send();
+        }
     }
 }

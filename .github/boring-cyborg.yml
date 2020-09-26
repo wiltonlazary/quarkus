@@ -10,7 +10,7 @@
 ### Non-covered dirs....
 ### - extensions
 ### - extensions/agroal
-### - extensions/amazon-dynamodb
+### - extensions/amazon-services
 ### - extensions/azure-functions-http
 ### - extensions/caffeine
 ### - extensions/flyway
@@ -27,7 +27,7 @@
 ### - integration-tests
 ### - integration-tests/.project
 ### - integration-tests/.settings
-### - integration-tests/amazon-dynamodb
+### - integration-tests/amazon-services
 ### - integration-tests/class-transformer
 ### - integration-tests/flyway
 ### - integration-tests/jackson
@@ -68,6 +68,7 @@ labelPRBasedOnFilePath:
         - integration-tests/amazon-lambda-http-resteasy/**/*
     area/arc:
         - extensions/arc/**/*
+        - independent-projects/arc/**/*
     area/artemis:
         - extensions/artemis-core/**/*
         - extensions/artemis-jms/**/*
@@ -76,20 +77,39 @@ labelPRBasedOnFilePath:
     area/cache:
         - extensions/cache/**/*
         - integration-tests/cache/**/*
+    area/cli:
+        - devtools/cli/**/*
     area/config:
         - extensions/config-yaml/**/*
         - core/deployment/src/main/java/io/quarkus/deployment/configuration/**/*
         - core/runtime/src/main/java/io/quarkus/runtime/configuration/**/*
     area/core:
         - core/**/*
+    area/codestarts:
+        - independent-projects/tools/codestarts/**/*
+        - devtools/platform-descriptor-json/src/main/resources/bundled-codestarts/**/*
+        - devtools/platform-descriptor-json/src/main/resources/codestarts/**/*
+        - devtools/platform-descriptor-json/src/main/resources/templates/**/*
     area/dependencies:
-        - .dependabot/config.yml
+        - .github/dependabot.yml
         - bom/**/*
         - build-parent/**/*
+    area/devtools:
+        - devtools/**/*
+        - independent-projects/bootstrap/**/*
+        - independent-projects/tools/**/*
     area/documentation:
         - docs/**/*
+    area/funqy:
+        - extensions/funqy/**/*
+    area/google-cloud-functions:
+        - extensions/google-cloud-functions/**/*
+        - extensions/google-cloud-functions-http/**/*
+        - integration-tests/google-cloud-functions/**/*
+        - integration-tests/google-cloud-functions-http/**/*
     area/gradle:
         - devtools/gradle/**/*
+        - integration-tests/gradle/**/*
     area/hibernate-orm:
         - extensions/hibernate-orm/**/*
         - extensions/spring-data-jpa/**/*
@@ -116,24 +136,23 @@ labelPRBasedOnFilePath:
         - integration-tests/hibernate-validator/**/*
     area/infinispan:
         - extensions/infinispan-client/**/*
-        - extensions/infinispan-embedded/**/*
         - integration-tests/infinispan-cache-jpa/**/*
         - integration-tests/infinispan-client/**/*
-        - integration-tests/infinispan-embedded/**/*
+    area/infra-automation:
+        - .github/**/*
     area/jaeger:
         - extensions/jaeger/**/*
     area/jaxb:
         - extensions/jaxb/**/*
+    area/jbang:
+        - **/*JBang*
+        - **/*jbang*
     area/kafka:
         - extensions/kafka-client/**/*
         - integration-tests/kafka/**/*
     area/kafka-streams:
         - extensions/kafka-streams/**/*
         - integration-tests/kafka-streams/**/*
-    area/kogito:
-        - extensions/kogito/**/*
-        - integration-tests/kogito/**/*
-        - integration-tests/kogito-maven/**/*
     area/kotlin:
         - extensions/kotlin/**/*
         - integration-tests/kotlin/**/*
@@ -147,11 +166,12 @@ labelPRBasedOnFilePath:
         - extensions/logging-json/**/*
         - extensions/logging-sentry/**/*
         - integration-tests/logging-gelf/**/*
+        - core/runtime/src/main/java/io/quarkus/runtime/logging/**/*
+        - core/deployment/src/main/java/io/quarkus/logging/**/*
     area/maven:
         - integration-tests/maven/**/*
         - independent-projects/bootstrap/maven-plugin/**/*
         - integration-tests/maven/**/*
-        - integration-tests/kogito-maven/**/*
         - test-framework/maven/**/*
         - devtools/maven/**/*
     area/mongodb:
@@ -229,7 +249,6 @@ labelPRBasedOnFilePath:
         - integration-tests/elytron-security/**/*
         - integration-tests/elytron-security-jdbc/**/*
         - integration-tests/elytron-security-oauth2/**/*
-        
     area/smallrye:
         - extensions/smallrye-context-propagation/**/*
         - extensions/smallrye-fault-tolerance/**/*
@@ -244,10 +263,12 @@ labelPRBasedOnFilePath:
         - extensions/smallrye-reactive-messaging-kafka/**/*
         - extensions/smallrye-reactive-messaging-mqtt/**/*
     area/spring:
+        - extensions/spring-cloud-config-client/**/*
         - extensions/spring-data-jpa/**/*
         - extensions/spring-di/**/*
         - extensions/spring-security/**/*
         - extensions/spring-web/**/*
+        - integration-tests/spring-cloud-config-client/**/*
         - integration-tests/spring-data-jpa/**/*
         - integration-tests/spring-di/**/*
         - integration-tests/spring-web/**/*
@@ -278,3 +299,6 @@ labelPRBasedOnFilePath:
         - integration-tests/vertx/**/*
         - integration-tests/vertx-graphql/**/*
         - integration-tests/vertx-http/**/*
+    area/redis:
+        - extensions/redis-client/**/*
+        - integration-tests/redis-client/**/*

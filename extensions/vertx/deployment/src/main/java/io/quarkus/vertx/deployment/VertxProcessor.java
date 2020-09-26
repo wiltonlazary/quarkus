@@ -7,7 +7,6 @@ import java.util.List;
 import java.util.Map;
 
 import javax.inject.Inject;
-import javax.inject.Singleton;
 
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.ClassInfo;
@@ -17,18 +16,17 @@ import org.jboss.jandex.Type;
 import org.jboss.logging.Logger;
 
 import io.quarkus.arc.deployment.AdditionalBeanBuildItem;
-import io.quarkus.arc.deployment.AnnotationsTransformerBuildItem;
-import io.quarkus.arc.deployment.BeanContainerBuildItem;
+import io.quarkus.arc.deployment.AutoAddScopeBuildItem;
+import io.quarkus.arc.deployment.BeanRegistrationPhaseBuildItem;
+import io.quarkus.arc.deployment.BeanRegistrationPhaseBuildItem.BeanConfiguratorBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem;
 import io.quarkus.arc.deployment.UnremovableBeanBuildItem.BeanClassAnnotationExclusion;
-import io.quarkus.arc.deployment.ValidationPhaseBuildItem;
-import io.quarkus.arc.deployment.ValidationPhaseBuildItem.ValidationErrorBuildItem;
 import io.quarkus.arc.processor.AnnotationStore;
-import io.quarkus.arc.processor.AnnotationsTransformer;
 import io.quarkus.arc.processor.BeanInfo;
 import io.quarkus.arc.processor.BuildExtension;
 import io.quarkus.arc.processor.BuiltinScope;
-import io.quarkus.deployment.Capabilities;
+import io.quarkus.deployment.Capability;
+import io.quarkus.deployment.Feature;
 import io.quarkus.deployment.GeneratedClassGizmoAdaptor;
 import io.quarkus.deployment.annotations.BuildProducer;
 import io.quarkus.deployment.annotations.BuildStep;
@@ -49,7 +47,6 @@ import io.quarkus.vertx.ConsumeEvent;
 import io.quarkus.vertx.core.deployment.CoreVertxBuildItem;
 import io.quarkus.vertx.runtime.VertxProducer;
 import io.quarkus.vertx.runtime.VertxRecorder;
-import io.vertx.reactivex.core.AbstractVerticle;
 
 class VertxProcessor {
 
@@ -60,8 +57,8 @@ class VertxProcessor {
 
     @BuildStep
     void featureAndCapability(BuildProducer<FeatureBuildItem> feature, BuildProducer<CapabilityBuildItem> capability) {
-        feature.produce(new FeatureBuildItem(FeatureBuildItem.VERTX));
-        capability.produce(new CapabilityBuildItem(Capabilities.RESTEASY_JSON_EXTENSION));
+        feature.produce(new FeatureBuildItem(Feature.VERTX));
+        capability.produce(new CapabilityBuildItem(Capability.RESTEASY_JSON));
     }
 
     @BuildStep
@@ -71,7 +68,7 @@ class VertxProcessor {
 
     @BuildStep
     @Record(ExecutionTime.RUNTIME_INIT)
-    VertxBuildItem build(CoreVertxBuildItem internalVertx, VertxRecorder recorder, BeanContainerBuildItem beanContainer,
+    VertxBuildItem build(CoreVertxBuildItem vertx, VertxRecorder recorder,
             List<EventConsumerBusinessMethodItem> messageConsumerBusinessMethods,
             BuildProducer<GeneratedClassBuildItem> generatedClass,
             AnnotationProxyBuildItem annotationProxy, LaunchModeBuildItem launchMode, ShutdownContextBuildItem shutdown,
@@ -95,11 +92,11 @@ class VertxProcessor {
                     recorderContext.classProxy(messageCodecItem.getCodec()));
         }
 
-        recorder.configureVertx(internalVertx.getVertx(), messageConsumerConfigurations,
+        recorder.configureVertx(vertx.getVertx(), messageConsumerConfigurations,
                 launchMode.getLaunchMode(),
                 shutdown, codecByClass);
         serviceStart.produce(new ServiceStartBuildItem("vertx"));
-        return new VertxBuildItem(recorder.forceStart(internalVertx.getVertx()));
+        return new VertxBuildItem(recorder.forceStart(vertx.getVertx()));
     }
 
     @BuildStep
@@ -108,14 +105,13 @@ class VertxProcessor {
     }
 
     @BuildStep
-    void validateBeanDeployment(
-            ValidationPhaseBuildItem validationPhase,
+    void collectEventConsumers(
+            BeanRegistrationPhaseBuildItem beanRegistrationPhase,
             BuildProducer<EventConsumerBusinessMethodItem> messageConsumerBusinessMethods,
-            BuildProducer<ValidationErrorBuildItem> errors) {
-
-        // We need to collect all business methods annotated with @MessageConsumer first
-        AnnotationStore annotationStore = validationPhase.getContext().get(BuildExtension.Key.ANNOTATION_STORE);
-        for (BeanInfo bean : validationPhase.getContext().beans().classBeans()) {
+            BuildProducer<BeanConfiguratorBuildItem> errors) {
+        // We need to collect all business methods annotated with @ConsumeEvent first
+        AnnotationStore annotationStore = beanRegistrationPhase.getContext().get(BuildExtension.Key.ANNOTATION_STORE);
+        for (BeanInfo bean : beanRegistrationPhase.getContext().beans().classBeans()) {
             for (MethodInfo method : bean.getTarget().get().asClass().methods()) {
                 AnnotationInstance consumeEvent = annotationStore.getAnnotation(method, CONSUME_EVENT);
                 if (consumeEvent != null) {
@@ -135,33 +131,24 @@ class VertxProcessor {
     }
 
     @BuildStep
-    AnnotationsTransformerBuildItem annotationTransformer() {
-        return new AnnotationsTransformerBuildItem(new AnnotationsTransformer() {
-
-            @Override
-            public boolean appliesTo(org.jboss.jandex.AnnotationTarget.Kind kind) {
-                return kind == org.jboss.jandex.AnnotationTarget.Kind.CLASS;
-            }
-
-            @Override
-            public void transform(TransformationContext context) {
-                if (!BuiltinScope.isIn(context.getAnnotations())
-                        && context.getTarget().asClass().annotations().containsKey(CONSUME_EVENT)) {
-                    // Class with no built-in scope annotation but with a method annotated with @ConsumeMessage
-                    LOGGER.debugf(
-                            "Found event consumer business methods on a class %s with no scope annotation - adding @Singleton",
-                            context.getTarget());
-                    context.transform().add(Singleton.class).done();
-                }
-            }
-        });
+    AutoAddScopeBuildItem autoAddScope() {
+        // Add @Singleton to a class with no scope annotation but with a method annotated with @ConsumeEvent
+        return AutoAddScopeBuildItem.builder().containsAnnotations(CONSUME_EVENT).defaultScope(BuiltinScope.SINGLETON)
+                .reason("Found event consumer business methods").build();
     }
 
     @BuildStep
-    void registerRxVerticleClasses(CombinedIndexBuildItem indexBuildItem,
+    void registerVerticleClasses(CombinedIndexBuildItem indexBuildItem,
             BuildProducer<ReflectiveClassBuildItem> reflectiveClass) {
+        // RX Verticles
         for (ClassInfo ci : indexBuildItem.getIndex()
-                .getAllKnownSubclasses(DotName.createSimple(AbstractVerticle.class.getName()))) {
+                .getAllKnownSubclasses(DotName.createSimple(io.vertx.reactivex.core.AbstractVerticle.class.getName()))) {
+            reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, ci.toString()));
+        }
+
+        // Mutiny Verticles
+        for (ClassInfo ci : indexBuildItem.getIndex()
+                .getAllKnownSubclasses(DotName.createSimple(io.smallrye.mutiny.vertx.core.AbstractVerticle.class.getName()))) {
             reflectiveClass.produce(new ReflectiveClassBuildItem(false, false, ci.toString()));
         }
     }

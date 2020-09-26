@@ -1,6 +1,5 @@
 package io.quarkus.arc.impl;
 
-import io.quarkus.arc.InjectableBean;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -11,6 +10,7 @@ import java.util.Set;
 import javax.enterprise.inject.Any;
 import javax.enterprise.inject.Default;
 import javax.enterprise.util.Nonbinding;
+import javax.inject.Qualifier;
 
 public final class Qualifiers {
 
@@ -21,17 +21,25 @@ public final class Qualifiers {
     private Qualifiers() {
     }
 
-    static boolean hasQualifiers(InjectableBean<?> bean, Annotation... requiredQualifiers) {
+    static void verify(Iterable<Annotation> qualifiers) {
+        for (Annotation qualifier : qualifiers) {
+            verifyQualifier(qualifier.annotationType());
+        }
+    }
+
+    static void verify(Annotation... qualifiers) {
+        for (Annotation qualifier : qualifiers) {
+            verifyQualifier(qualifier.annotationType());
+        }
+    }
+
+    static boolean hasQualifiers(Set<Annotation> beanQualifiers, Annotation... requiredQualifiers) {
         for (Annotation qualifier : requiredQualifiers) {
-            if (!hasQualifier(bean, qualifier)) {
+            if (!hasQualifier(beanQualifiers, qualifier)) {
                 return false;
             }
         }
         return true;
-    }
-
-    static boolean hasQualifier(InjectableBean<?> bean, Annotation requiredQualifier) {
-        return hasQualifier(bean.getQualifiers(), requiredQualifier);
     }
 
     static boolean hasQualifier(Iterable<Annotation> qualifiers, Annotation requiredQualifier) {
@@ -93,6 +101,12 @@ public final class Qualifiers {
         } catch (IllegalArgumentException | IllegalAccessException | InvocationTargetException e) {
             throw new RuntimeException(
                     "Error checking value of member method " + method.getName() + " on " + method.getDeclaringClass(), e);
+        }
+    }
+
+    private static void verifyQualifier(Class<? extends Annotation> annotationType) {
+        if (!annotationType.isAnnotationPresent(Qualifier.class)) {
+            throw new IllegalArgumentException("Annotation is not a qualifier: " + annotationType);
         }
     }
 

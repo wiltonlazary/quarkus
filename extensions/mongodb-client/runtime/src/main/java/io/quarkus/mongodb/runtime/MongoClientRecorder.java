@@ -1,55 +1,98 @@
 package io.quarkus.mongodb.runtime;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
+
+import javax.enterprise.inject.Default;
+import javax.enterprise.inject.literal.NamedLiteral;
+import javax.enterprise.util.AnnotationLiteral;
 
 import com.mongodb.client.MongoClient;
+import com.mongodb.event.ConnectionPoolListener;
 
 import io.quarkus.arc.Arc;
-import io.quarkus.arc.runtime.BeanContainer;
-import io.quarkus.arc.runtime.BeanContainerListener;
-import io.quarkus.mongodb.ReactiveMongoClient;
+import io.quarkus.mongodb.metrics.MicrometerConnectionPoolListener;
+import io.quarkus.mongodb.metrics.MongoMetricsConnectionPoolListener;
+import io.quarkus.mongodb.reactive.ReactiveMongoClient;
 import io.quarkus.runtime.RuntimeValue;
 import io.quarkus.runtime.annotations.Recorder;
 
 @Recorder
 public class MongoClientRecorder {
 
-    public static final String DEFAULT_MONGOCLIENT_NAME = "<default>";
-
-    public BeanContainerListener addMongoClient(
-            Class<? extends AbstractMongoClientProducer> mongoClientProducerClass,
-            boolean disableSslSupport) {
-        return new BeanContainerListener() {
+    public Supplier<MongoClientSupport> mongoClientSupportSupplier(List<String> codecProviders, List<String> bsonDiscriminators,
+            List<Supplier<ConnectionPoolListener>> connectionPoolListenerSuppliers, boolean disableSslSupport) {
+        return new Supplier<MongoClientSupport>() {
             @Override
-            public void created(BeanContainer beanContainer) {
-                AbstractMongoClientProducer producer = beanContainer.instance(mongoClientProducerClass);
-                if (disableSslSupport) {
-                    producer.disableSslSupport();
+            public MongoClientSupport get() {
+                List<ConnectionPoolListener> connectionPoolListeners = new ArrayList<>(connectionPoolListenerSuppliers.size());
+                for (Supplier<ConnectionPoolListener> item : connectionPoolListenerSuppliers) {
+                    connectionPoolListeners.add(item.get());
                 }
+
+                return new MongoClientSupport(codecProviders, bsonDiscriminators, connectionPoolListeners, disableSslSupport);
             }
         };
     }
 
-    public void configureRuntimeProperties(List<String> codecs, List<String> bsonDiscriminators, MongodbConfig config) {
-        // TODO @dmlloyd
-        // Same here, the map is entirely empty (obviously, I didn't expect the values
-        // that were not properly injected but at least the config objects present in
-        // the map)
-        // The elements from the default mongoClient are there
-        AbstractMongoClientProducer producer = Arc.container().instance(AbstractMongoClientProducer.class).get();
-        producer.setCodecs(codecs);
-        producer.setBsonDiscriminators(bsonDiscriminators);
-        producer.setConfig(config);
+    public Supplier<MongoClient> mongoClientSupplier(String clientName,
+            @SuppressWarnings("unused") MongodbConfig mongodbConfig) {
+        MongoClient mongoClient = Arc.container().instance(MongoClients.class).get().createMongoClient(clientName);
+        return new Supplier<MongoClient>() {
+            @Override
+            public MongoClient get() {
+                return mongoClient;
+            }
+        };
+    }
+
+    public Supplier<ReactiveMongoClient> reactiveMongoClientSupplier(String clientName,
+            @SuppressWarnings("unused") MongodbConfig mongodbConfig) {
+        ReactiveMongoClient reactiveMongoClient = Arc.container().instance(MongoClients.class).get()
+                .createReactiveMongoClient(clientName);
+        return new Supplier<ReactiveMongoClient>() {
+            @Override
+            public ReactiveMongoClient get() {
+                return reactiveMongoClient;
+            }
+        };
     }
 
     public RuntimeValue<MongoClient> getClient(String name) {
-        AbstractMongoClientProducer producer = Arc.container().instance(AbstractMongoClientProducer.class).get();
-        return new RuntimeValue<>(producer.getClient(name));
+        return new RuntimeValue<>(Arc.container().instance(MongoClient.class, literal(name)).get());
     }
 
     public RuntimeValue<ReactiveMongoClient> getReactiveClient(String name) {
-        AbstractMongoClientProducer producer = Arc.container().instance(AbstractMongoClientProducer.class).get();
-        return new RuntimeValue<>(producer.getReactiveClient(name));
+        return new RuntimeValue<>(
+                Arc.container()
+                        .instance(ReactiveMongoClient.class, literal(name + MongoClientBeanUtil.REACTIVE_CLIENT_NAME_SUFFIX))
+                        .get());
     }
 
+    @SuppressWarnings("rawtypes")
+    private AnnotationLiteral literal(String name) {
+        if (name.startsWith(MongoClientBeanUtil.DEFAULT_MONGOCLIENT_NAME)) {
+            return Default.Literal.INSTANCE;
+        }
+        return NamedLiteral.of(name);
+    }
+
+    public Supplier<ConnectionPoolListener> createMicrometerConnectionPoolListener() {
+        return new Supplier<ConnectionPoolListener>() {
+            @Override
+            public ConnectionPoolListener get() {
+                return MicrometerConnectionPoolListener.createMicrometerConnectionPool();
+            }
+        };
+    }
+
+    public Supplier<ConnectionPoolListener> createMPMetricsConnectionPoolListener() {
+        return new Supplier<ConnectionPoolListener>() {
+            @Override
+            public ConnectionPoolListener get() {
+                return new MongoMetricsConnectionPoolListener();
+            }
+        };
+    }
 }

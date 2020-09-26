@@ -14,10 +14,16 @@ public class InterceptorResolver {
 
     private final BeanDeployment beanDeployment;
 
-    public InterceptorResolver(BeanDeployment beanDeployment) {
+    InterceptorResolver(BeanDeployment beanDeployment) {
         this.beanDeployment = beanDeployment;
     }
 
+    /**
+     * 
+     * @param interceptionType
+     * @param bindings
+     * @return the list of interceptors for a set of interceptor bindings and a type of interception
+     */
     public List<InterceptorInfo> resolve(InterceptionType interceptionType, Set<AnnotationInstance> bindings) {
         if (bindings.isEmpty()) {
             return Collections.emptyList();
@@ -27,10 +33,10 @@ public class InterceptorResolver {
             if (!interceptor.intercepts(interceptionType)) {
                 continue;
             }
-            boolean matches = false;
+            boolean matches = true;
             for (AnnotationInstance interceptorBinding : interceptor.getBindings()) {
-                if (hasInterceptorBinding(bindings, interceptorBinding)) {
-                    matches = true;
+                if (!hasInterceptorBinding(bindings, interceptorBinding)) {
+                    matches = false;
                     break;
                 }
             }
@@ -77,11 +83,12 @@ public class InterceptorResolver {
             // Must have the same annotation member value for each member which is not annotated @Nonbinding
             boolean matches = true;
             Set<String> nonBindingFields = beanDeployment.getNonBindingFields(interceptorBinding.name());
-            for (AnnotationValue value : candidate.valuesWithDefaults(beanDeployment.getIndex())) {
+            for (AnnotationValue value : candidate.valuesWithDefaults(beanDeployment.getBeanArchiveIndex())) {
                 String annotationField = value.name();
                 if (!interceptorBindingClass.method(annotationField).hasAnnotation(DotNames.NONBINDING)
                         && !nonBindingFields.contains(annotationField)
-                        && !value.equals(interceptorBinding.valueWithDefault(beanDeployment.getIndex(), annotationField))) {
+                        && !value.equals(
+                                interceptorBinding.valueWithDefault(beanDeployment.getBeanArchiveIndex(), annotationField))) {
                     matches = false;
                     break;
                 }

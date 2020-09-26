@@ -137,21 +137,21 @@ public class MongoClientConfig {
     public Optional<Duration> connectTimeout;
 
     /**
-     * How long a send or receive on a socket can take before timing out.
+     * How long a socket read can take before timing out.
      */
     @ConfigItem
-    public Optional<Duration> socketTimeout;
+    public Optional<Duration> readTimeout;
 
     /**
      * If connecting with TLS, this option enables insecure TLS connections.
      */
-    @ConfigItem(defaultValue = "false")
+    @ConfigItem
     public boolean tlsInsecure;
 
     /**
      * Whether to connect using TLS.
      */
-    @ConfigItem(defaultValue = "false")
+    @ConfigItem
     public boolean tls;
 
     /**
@@ -197,12 +197,4 @@ public class MongoClientConfig {
      */
     @ConfigDocSection
     public CredentialConfig credentials;
-
-    /**
-     * Configures the maximum number of concurrent operations allowed to wait for a server to become available.
-     * All further operations will get an exception immediately.
-     */
-    @ConfigItem
-    public OptionalInt maxWaitQueueSize;
-
 }

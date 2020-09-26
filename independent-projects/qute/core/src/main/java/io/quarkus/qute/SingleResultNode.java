@@ -4,12 +4,12 @@ import java.util.List;
 import java.util.function.Consumer;
 
 /**
- * A result node backed by an object value.
+ * A result node backed by a single object value.
  */
 public class SingleResultNode implements ResultNode {
 
     private final Object value;
-    private final Expression expression;
+    private final ExpressionImpl expression;
     private final List<ResultMapper> mappers;
 
     public SingleResultNode(Object value, ExpressionNode expressionNode) {
@@ -25,7 +25,7 @@ public class SingleResultNode implements ResultNode {
             String result = null;
             if (mappers != null) {
                 for (ResultMapper mapper : mappers) {
-                    if (mapper.appliesTo(expression.origin, value)) {
+                    if (mapper.appliesTo(expression.getOrigin(), value)) {
                         result = mapper.map(value, expression);
                         break;
                     }

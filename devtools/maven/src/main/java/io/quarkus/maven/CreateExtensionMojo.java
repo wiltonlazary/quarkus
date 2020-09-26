@@ -46,9 +46,7 @@ import freemarker.template.Template;
 import freemarker.template.TemplateException;
 import freemarker.template.TemplateExceptionHandler;
 import io.quarkus.bootstrap.resolver.maven.MavenArtifactResolver;
-import io.quarkus.bootstrap.resolver.maven.MavenRepoInitializer;
 import io.quarkus.bootstrap.resolver.maven.workspace.LocalProject;
-import io.quarkus.bootstrap.resolver.maven.workspace.LocalWorkspace;
 import io.quarkus.maven.utilities.MojoUtils;
 import io.quarkus.maven.utilities.PomTransformer;
 import io.quarkus.maven.utilities.PomTransformer.Gavtcs;
@@ -56,7 +54,7 @@ import io.quarkus.maven.utilities.PomTransformer.Transformation;
 
 /**
  * Creates a triple of stub Maven modules (Parent, Runtime and Deployment) to implement a new
- * <a href="https://quarkus.io/guides/extension-authors-guide">Quarkus Extension</a>.
+ * <a href="https://quarkus.io/guides/writing-extensions">Quarkus Extension</a>.
  *
  * <h2>Adding into an established source tree</h2>
  * <p>
@@ -89,7 +87,7 @@ public class CreateExtensionMojo extends AbstractMojo {
     static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("@\\{([^\\}]+)\\}");
 
     static final String PLATFORM_DEFAULT_GROUP_ID = "io.quarkus";
-    static final String PLATFORM_DEFAULT_ARTIFACT_ID = "quarkus-bom-deployment";
+    static final String PLATFORM_DEFAULT_ARTIFACT_ID = "quarkus-bom";
 
     static final String COMPILER_PLUGIN_VERSION_PROP = "compiler-plugin.version";
     static final String COMPILER_PLUGIN_VERSION_POM_EXPR = "${" + COMPILER_PLUGIN_VERSION_PROP + "}";
@@ -108,13 +106,13 @@ public class CreateExtensionMojo extends AbstractMojo {
     File basedir;
 
     /**
-     * The {@code groupId} of the Quarkus platform's BOM containing deployment dependencies.
+     * The {@code groupId} of the Quarkus platform BOM.
      */
     @Parameter(property = "platformGroupId", defaultValue = PLATFORM_DEFAULT_GROUP_ID)
     String platformGroupId;
 
     /**
-     * The {@code artifactId} of the Quarkus platform's BOM containing deployment dependencies.
+     * The {@code artifactId} of the Quarkus platform BOM.
      */
     @Parameter(property = "platformArtifactId", defaultValue = PLATFORM_DEFAULT_ARTIFACT_ID)
     String platformArtifactId;
@@ -358,9 +356,14 @@ public class CreateExtensionMojo extends AbstractMojo {
      * These are the template files you may want to provide under your custom {@link #templatesUriBase}:
      * <ul>
      * <li>{@code deployment-pom.xml}</li>
+     * <li>{@code integration-test-application.properties}</li>
+     * <li>{@code integration-test-pom.xml}</li>
+     * <li>{@code IT.java}</li>
      * <li>{@code parent-pom.xml}</li>
-     * <li>{@code runtime-pom.xml}</li>
      * <li>{@code Processor.java}</li>
+     * <li>{@code runtime-pom.xml}</li>
+     * <li>{@code Test.java}</li>
+     * <li>{@code TestResource.java}</li>
      * </ul>
      * Note that you do not need to provide all of them. Files not available in your custom {@link #templatesUriBase}
      * will be looked up in the default URI base {@value #DEFAULT_TEMPLATES_URI_BASE}. The default templates are
@@ -381,30 +384,19 @@ public class CreateExtensionMojo extends AbstractMojo {
     String encoding;
 
     /**
-     * Path relative to {@link #basedir} pointing at a {@code pom.xml} file containing the BOM (Bill of Materials) that
-     * manages runtime extension artifacts. If set, the newly created Runtime module will be added to
-     * {@code <dependencyManagement>} section of this bom; otherwise the newly created Runtime module will not be added
+     * Path relative to {@link #basedir} pointing at a {@code pom.xml} file containing the platform BOM (Bill of Materials) that
+     * manages extension artifacts. If set, the newly created runtime and deployment modules will be added to
+     * {@code <dependencyManagement>} section of this bom; otherwise the newly created modules will not be added
      * to any BOM.
      *
-     * @since 0.21.0
+     * @since 1.7.0.Final
      */
-    @Parameter(property = "quarkus.runtimeBomPath")
-    Path runtimeBomPath;
+    @Parameter(property = "bomPath")
+    Path bomPath;
 
     /**
-     * Path relative to {@link #basedir} pointing at a {@code pom.xml} file containing the BOM (Bill of Materials) that
-     * manages deployment time extension artifacts. If set, the newly created Deployment module will be added to
-     * {@code <dependencyManagement>} section of this bom; otherwise the newly created Deployment module will not be
-     * added to any BOM.
-     *
-     * @since 0.21.0
-     */
-    @Parameter(property = "quarkus.deploymentBomPath")
-    Path deploymentBomPath;
-
-    /**
-     * A version for the entries added to the runtime BOM (see {@link #runtimeBomPath}) and to the deployment BOM (see
-     * {@link #deploymentBomPath}). If you want to pass a property placeholder, use {@code @} instead if {@code $} so
+     * A version for the entries added to the platform BOM (see {@link #bomPath}).
+     * If you want to pass a property placeholder, use {@code @} instead if {@code $} so
      * that the property is not evaluated by the current mojo - e.g. <code>@{my-project.version}</code>
      *
      * @since 0.25.0
@@ -414,15 +406,15 @@ public class CreateExtensionMojo extends AbstractMojo {
 
     /**
      * A list of strings of the form {@code groupId:artifactId:version[:type[:classifier[:scope]]]} representing the
-     * dependencies that should be added to the generated runtime module and to the runtime BOM if it is specified via
-     * {@link #runtimeBomPath}.
+     * dependencies that should be added to the generated runtime module and to the platform BOM if it is specified via
+     * {@link #bomPath}.
      * <p>
      * In case the built-in Maven <code>${placeholder}</code> expansion does not work well for you (because you e.g.
      * pass {@link #additionalRuntimeDependencies}) via CLI, the Mojo supports a custom <code>@{placeholder}</code>
      * expansion:
      * <ul>
      * <li><code>@{$}</code> will be expanded to {@code $} - handy for escaping standard placeholders. E.g. to insert
-     * <code>${quarkus.version}</code> to the BOM, you need to pass <code>@{$}{quarkus.version}</code></li>
+     * <code>${quarkus.version}</code> to the platform BOM, you need to pass <code>@{$}{quarkus.version}</code></li>
      * <li><code>@{quarkus.field}</code> will be expanded to whatever value the given {@code field} of this mojo has at
      * runtime.</li>
      * <li>Any other <code>@{placeholder}</code> will be resolved using the current project's properties</li>
@@ -434,9 +426,9 @@ public class CreateExtensionMojo extends AbstractMojo {
     List<String> additionalRuntimeDependencies;
 
     /**
-     * A path relative to {@link #basedir} pointing at a {@code pom.xml} file that should serve as a parent for the
-     * integration test Maven module this mojo generates. If {@link #itestParentPath} is not set, the integration test
-     * module will not be generated.
+     * An absolute path or a path relative to {@link #basedir} pointing at a {@code pom.xml} file that should serve as
+     * a parent for the integration test Maven module this mojo generates. If {@link #itestParentPath} is not set,
+     * the integration test module will not be generated.
      *
      * @since 0.22.0
      */
@@ -557,16 +549,10 @@ public class CreateExtensionMojo extends AbstractMojo {
             }
         }
 
-        if (runtimeBomPath != null) {
-            runtimeBomPath = basedir.toPath().resolve(runtimeBomPath);
-            if (!Files.exists(runtimeBomPath)) {
-                throw new MojoFailureException("runtimeBomPath does not exist: " + runtimeBomPath);
-            }
-        }
-        if (deploymentBomPath != null) {
-            deploymentBomPath = basedir.toPath().resolve(deploymentBomPath);
-            if (!Files.exists(deploymentBomPath)) {
-                throw new MojoFailureException("deploymentBomPath does not exist: " + deploymentBomPath);
+        if (bomPath != null) {
+            bomPath = basedir.toPath().resolve(bomPath);
+            if (!Files.exists(bomPath)) {
+                throw new MojoFailureException("bomPath does not exist: " + bomPath);
             }
         }
 
@@ -599,12 +585,11 @@ public class CreateExtensionMojo extends AbstractMojo {
                     final DefaultArtifact rootArtifact = new DefaultArtifact(getGroupId(rootModel),
                             rootModel.getArtifactId(), null, rootModel.getPackaging(), getVersion(rootModel));
                     try {
-                        final LocalWorkspace ws = LocalProject.loadWorkspace(rootPom.getParentFile().toPath()).getWorkspace();
                         final MavenArtifactResolver mvn = MavenArtifactResolver.builder()
-                                .setRepositorySystem(MavenRepoInitializer.getRepositorySystem(repoSession.isOffline(), ws))
+                                .setRepositorySystem(repoSystem)
                                 .setRepositorySystemSession(repoSession)
                                 .setRemoteRepositories(repos)
-                                .setWorkspace(LocalProject.loadWorkspace(rootPom.getParentFile().toPath()).getWorkspace())
+                                .setCurrentProject(LocalProject.loadWorkspace(rootPom.getParentFile().toPath()))
                                 .build();
                         final ArtifactDescriptorResult rootDescr = mvn.resolveDescriptor(rootArtifact);
                         importDeploymentBom = !hasQuarkusDeploymentBom(rootDescr.getManagedDependencies());
@@ -624,12 +609,11 @@ public class CreateExtensionMojo extends AbstractMojo {
                     final DefaultArtifact rootArtifact = new DefaultArtifact(getGroupId(rootModel),
                             rootModel.getArtifactId(), null, rootModel.getPackaging(), getVersion(rootModel));
                     try {
-                        final LocalWorkspace ws = LocalProject.loadWorkspace(rootPom.getParentFile().toPath()).getWorkspace();
                         final MavenArtifactResolver mvn = MavenArtifactResolver.builder()
-                                .setRepositorySystem(MavenRepoInitializer.getRepositorySystem(repoSession.isOffline(), ws))
+                                .setRepositorySystem(repoSystem)
                                 .setRepositorySystemSession(repoSession)
                                 .setRemoteRepositories(repos)
-                                .setWorkspace(ws)
+                                .setCurrentProject(LocalProject.loadWorkspace(rootPom.getParentFile().toPath()))
                                 .build();
                         final ArtifactDescriptorResult rootDescr = mvn.resolveDescriptor(rootArtifact);
                         importDeploymentBom = !hasQuarkusDeploymentBom(rootDescr.getManagedDependencies());
@@ -658,26 +642,24 @@ public class CreateExtensionMojo extends AbstractMojo {
                 addModules(rootPom.toPath(), templateParams, rootModel);
             }
 
-            if (runtimeBomPath != null) {
+            if (bomPath != null) {
                 getLog().info(
                         String.format("Adding [%s] to dependencyManagement in [%s]", templateParams.artifactId,
-                                runtimeBomPath));
+                                bomPath));
                 List<PomTransformer.Transformation> transformations = new ArrayList<PomTransformer.Transformation>();
                 transformations
                         .add(Transformation.addManagedDependency(templateParams.groupId, templateParams.artifactId,
                                 templateParams.bomEntryVersion));
                 for (Gavtcs gavtcs : templateParams.additionalRuntimeDependencies) {
-                    getLog().info(String.format("Adding [%s] to dependencyManagement in [%s]", gavtcs, runtimeBomPath));
+                    getLog().info(String.format("Adding [%s] to dependencyManagement in [%s]", gavtcs, bomPath));
                     transformations.add(Transformation.addManagedDependency(gavtcs));
                 }
-                pomTransformer(runtimeBomPath).transform(transformations);
-            }
-            if (deploymentBomPath != null) {
                 final String aId = templateParams.artifactId + "-deployment";
-                getLog().info(String.format("Adding [%s] to dependencyManagement in [%s]", aId, deploymentBomPath));
-                pomTransformer(deploymentBomPath)
-                        .transform(Transformation.addManagedDependency(templateParams.groupId, aId,
-                                templateParams.bomEntryVersion));
+                getLog().info(String.format("Adding [%s] to dependencyManagement in [%s]", aId, bomPath));
+                transformations.add(Transformation.addManagedDependency(templateParams.groupId, aId,
+                        templateParams.bomEntryVersion));
+
+                pomTransformer(bomPath).transform(transformations);
             }
             if (itestParentPath != null) {
                 generateItest(cfg, templateParams);
@@ -853,7 +835,7 @@ public class CreateExtensionMojo extends AbstractMojo {
         templateParams.javaPackageBase = javaPackageBase != null ? javaPackageBase
                 : getJavaPackage(templateParams.groupId, javaPackageInfix, artifactId);
         templateParams.additionalRuntimeDependencies = getAdditionalRuntimeDependencies();
-        templateParams.runtimeBomPathSet = runtimeBomPath != null;
+        templateParams.bomPathSet = bomPath != null;
         return templateParams;
     }
 
@@ -884,6 +866,8 @@ public class CreateExtensionMojo extends AbstractMojo {
 
             final Path itestDir = itestParentAbsPath.getParent().resolve(model.artifactIdBase);
             evalTemplate(cfg, "integration-test-pom.xml", itestDir.resolve("pom.xml"), model);
+            evalTemplate(cfg, "integration-test-application.properties",
+                    itestDir.resolve("src/main/resources/application.properties"), model);
 
             final Path testResourcePath = itestDir.resolve("src/main/java/" + model.javaPackageBase.replace('.', '/')
                     + "/it/" + model.artifactIdBaseCamelCase + "Resource.java");
@@ -1025,10 +1009,10 @@ public class CreateExtensionMojo extends AbstractMojo {
                             defaultLoader //
                     });
         } else if (templatesUriBase.startsWith(FILE_PREFIX)) {
+            final Path resolvedTemplatesDir = basedir.toPath().resolve(templatesUriBase.substring(FILE_PREFIX.length()));
             return new MultiTemplateLoader( //
                     new TemplateLoader[] { //
-                            new FileTemplateLoader(
-                                    new File(basedir, templatesUriBase.substring(FILE_PREFIX.length()))), //
+                            new FileTemplateLoader(resolvedTemplatesDir.toFile()),
                             defaultLoader //
                     });
         } else {
@@ -1058,22 +1042,8 @@ public class CreateExtensionMojo extends AbstractMojo {
         }
     }
 
-    public void setRuntimeBomPath(String runtimeBomPath) {
-        this.runtimeBomPath = Paths.get(runtimeBomPath);
-    }
-
-    public void setDeploymentBomPath(String deploymentBomPath) {
-        this.deploymentBomPath = Paths.get(deploymentBomPath);
-    }
-
     public void setItestParentPath(String itestParentPath) {
         this.itestParentPath = Paths.get(itestParentPath);
-    }
-
-    private void debug(String format, Object... args) {
-        if (getLog().isDebugEnabled()) {
-            getLog().debug(String.format(format, args));
-        }
     }
 
     public static class TemplateParams {
@@ -1098,7 +1068,7 @@ public class CreateExtensionMojo extends AbstractMojo {
         boolean assumeManaged;
         String quarkusVersion;
         List<Gavtcs> additionalRuntimeDependencies;
-        boolean runtimeBomPathSet;
+        boolean bomPathSet;
         String bomEntryVersion;
 
         public String getJavaPackageBase() {
@@ -1169,8 +1139,8 @@ public class CreateExtensionMojo extends AbstractMojo {
             return additionalRuntimeDependencies;
         }
 
-        public boolean isRuntimeBomPathSet() {
-            return runtimeBomPathSet;
+        public boolean isBomPathSet() {
+            return bomPathSet;
         }
 
         public String getItestParentRelativePath() {

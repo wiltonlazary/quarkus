@@ -129,6 +129,11 @@ public class BytecodeRecorderTestCase {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
             recorder.bean(new TestJavaBean("A string", 99));
         }, new TestJavaBean("A string", 99));
+
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.bean(new TestJavaBeanSubclass("A string", 99, "PUT"));
+        }, new TestJavaBeanSubclass("A string", 99, "PUT"));
     }
 
     @Test
@@ -245,6 +250,16 @@ public class BytecodeRecorderTestCase {
     }
 
     @Test
+    public void testRecordableConstructor() throws Exception {
+        runTest(generator -> {
+            TestConstructorBean bean = new TestConstructorBean("John", "Citizen");
+            bean.setAge(30);
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.bean(bean);
+        }, new TestConstructorBean("John", "Citizen").setAge(30));
+    }
+
+    @Test
     public void testRecordingProxyToStringNotNull() {
         TestClassLoader tcl = new TestClassLoader(getClass().getClassLoader());
         BytecodeRecorderImpl generator = new BytecodeRecorderImpl(tcl, false, TEST_CLASS);
@@ -265,6 +280,11 @@ public class BytecodeRecorderTestCase {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
             recorder.object(emptyOptional);
         }, emptyOptional);
+        Optional<TestJavaBean> optionalWithCustomClass = Optional.of(new TestJavaBean());
+        runTest(generator -> {
+            TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);
+            recorder.object(optionalWithCustomClass);
+        }, optionalWithCustomClass);
         URL url = new URL("https://quarkus.io");
         runTest(generator -> {
             TestRecorder recorder = generator.getRecordingProxy(TestRecorder.class);

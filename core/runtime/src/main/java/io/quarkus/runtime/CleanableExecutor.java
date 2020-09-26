@@ -31,10 +31,17 @@ import sun.misc.Unsafe;
  */
 public final class CleanableExecutor implements ExecutorService {
 
+    static {
+        try {
+            Class.forName("org.jboss.threads.EnhancedQueueExecutor$1", false, CleanableExecutor.class.getClassLoader());
+        } catch (ClassNotFoundException ignored) {
+        }
+    }
+
     private final EnhancedQueueExecutor executor;
 
     private static final AtomicInteger generation = new AtomicInteger(1);
-    private final ThreadLocal<Integer> lastGeneration = new ThreadLocal<Integer>() {
+    private static final ThreadLocal<Integer> lastGeneration = new ThreadLocal<Integer>() {
         @Override
         protected Integer initialValue() {
             return -1;
@@ -79,7 +86,7 @@ public final class CleanableExecutor implements ExecutorService {
 
     }
 
-    private void handleClean(int taskGen) {
+    private static void handleClean(int taskGen) {
         int val = lastGeneration.get();
         if (val == -1) {
             lastGeneration.set(taskGen);
@@ -210,7 +217,7 @@ public final class CleanableExecutor implements ExecutorService {
         });
     }
 
-    private class CleaningRunnable implements Runnable {
+    private static class CleaningRunnable implements Runnable {
         private final Runnable command;
         final int gen = generation.get();
 
@@ -225,7 +232,7 @@ public final class CleanableExecutor implements ExecutorService {
         }
     }
 
-    private class CleaningCallable<T> implements Callable<T> {
+    private static class CleaningCallable<T> implements Callable<T> {
         private final Callable<T> i;
         final int gen = generation.get();
 

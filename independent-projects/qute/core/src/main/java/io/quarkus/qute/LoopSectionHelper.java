@@ -4,8 +4,7 @@ import static io.quarkus.qute.Parameter.EMPTY;
 
 import io.quarkus.qute.Results.Result;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -27,7 +26,7 @@ public class LoopSectionHelper implements SectionHelper {
     private final Expression iterable;
 
     LoopSectionHelper(String alias, Expression iterable) {
-        this.alias = alias.equals(Parameter.EMPTY) ? DEFAULT_ALIAS : alias;
+        this.alias = Parameter.EMPTY.equals(alias) ? DEFAULT_ALIAS : alias;
         this.iterable = Objects.requireNonNull(iterable);
     }
 
@@ -35,21 +34,15 @@ public class LoopSectionHelper implements SectionHelper {
     @Override
     public CompletionStage<ResultNode> resolve(SectionResolutionContext context) {
         return context.resolutionContext().evaluate(iterable).thenCompose(it -> {
-            // Ideally, we should not block here but we still need to retain the order of results 
-            List<CompletionStage<ResultNode>> results = new ArrayList<>();
-            Iterator<?> iterator;
-            if (it instanceof Iterable) {
-                iterator = ((Iterable<?>) it).iterator();
-            } else if (it instanceof Map) {
-                iterator = ((Map<?, ?>) it).entrySet().iterator();
-            } else if (it instanceof Stream) {
-                iterator = ((Stream<?>) it).sequential().iterator();
-            } else if (it instanceof Integer) {
-                iterator = IntStream.rangeClosed(1, (Integer) it).iterator();
-            } else {
-                throw new IllegalStateException("Cannot iterate over: " + it);
+            if (it == null) {
+                throw new TemplateException(String.format(
+                        "Loop section error in template %s on line %s: [%s] resolved to [null] which is not iterable",
+                        iterable.getOrigin().getTemplateId(), iterable.getOrigin().getLine(), iterable.toOriginalString()));
             }
+            List<CompletionStage<ResultNode>> results = new ArrayList<>();
+            Iterator<?> iterator = extractIterator(it);
             int idx = 0;
+            // Ideally, we should not block here but we still need to retain the order of results
             while (iterator.hasNext()) {
                 results.add(nextElement(iterator.next(), idx++, iterator.hasNext(), context));
             }
@@ -75,10 +68,31 @@ public class LoopSectionHelper implements SectionHelper {
         });
     }
 
+    private Iterator<?> extractIterator(Object it) {
+        if (it instanceof Iterable) {
+            return ((Iterable<?>) it).iterator();
+        } else if (it instanceof Iterator) {
+            return (Iterator<?>) it;
+        } else if (it instanceof Map) {
+            return ((Map<?, ?>) it).entrySet().iterator();
+        } else if (it instanceof Stream) {
+            return ((Stream<?>) it).sequential().iterator();
+        } else if (it instanceof Integer) {
+            return IntStream.rangeClosed(1, (Integer) it).iterator();
+        } else if (it.getClass().isArray()) {
+            return Arrays.stream((Object[]) it).iterator();
+        } else {
+            throw new TemplateException(String.format(
+                    "Loop section error in template %s on line %s: [%s] resolved to [%s] which is not iterable",
+                    iterable.getOrigin().getTemplateId(), iterable.getOrigin().getLine(), iterable.toOriginalString(),
+                    it.getClass().getName()));
+        }
+    }
+
     CompletionStage<ResultNode> nextElement(Object element, int index, boolean hasNext, SectionResolutionContext context) {
         AtomicReference<ResolutionContext> resolutionContextHolder = new AtomicReference<>();
         ResolutionContext child = context.resolutionContext().createChild(new IterationElement(alias, element, index, hasNext),
-                null);
+                null, null);
         resolutionContextHolder.set(child);
         return context.execute(child);
     }
@@ -110,7 +124,7 @@ public class LoopSectionHelper implements SectionHelper {
         }
 
         @Override
-        public Map<String, String> initializeBlock(Map<String, String> outerNameTypeInfos, BlockInfo block) {
+        public Scope initializeBlock(Scope previousScope, BlockInfo block) {
             if (block.getLabel().equals(MAIN_BLOCK_NAME)) {
                 String iterable = block.getParameters().get(ITERABLE);
                 if (iterable == null) {
@@ -118,19 +132,19 @@ public class LoopSectionHelper implements SectionHelper {
                 }
                 Expression iterableExpr = block.addExpression(ITERABLE, iterable);
                 String alias = block.getParameters().get(ALIAS);
-                if (iterableExpr.typeCheckInfo != null) {
+                if (iterableExpr.getParts().get(0).getTypeInfo() != null) {
                     alias = alias.equals(Parameter.EMPTY) ? DEFAULT_ALIAS : alias;
-                    Map<String, String> typeInfos = new HashMap<String, String>(outerNameTypeInfos);
-                    typeInfos.put(alias, iterableExpr.typeCheckInfo + HINT);
-                    return typeInfos;
+                    Scope newScope = new Scope(previousScope);
+                    newScope.put(alias, iterableExpr.collectTypeInfo() + HINT);
+                    return newScope;
                 } else {
-                    Map<String, String> typeInfos = new HashMap<String, String>(outerNameTypeInfos);
                     // Make sure we do not try to validate against the parent context
-                    typeInfos.put(alias, null);
-                    return typeInfos;
+                    Scope newScope = new Scope(previousScope);
+                    newScope.put(alias, null);
+                    return newScope;
                 }
             } else {
-                return Collections.emptyMap();
+                return previousScope;
             }
         }
     }

@@ -3,9 +3,8 @@ package io.quarkus.hibernate.orm.runtime.boot;
 import java.net.URL;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
-import java.util.Set;
 
 import javax.persistence.SharedCacheMode;
 import javax.persistence.ValidationMode;
@@ -13,11 +12,8 @@ import javax.persistence.spi.PersistenceUnitTransactionType;
 
 import org.hibernate.bytecode.enhance.spi.EnhancementContext;
 import org.hibernate.jpa.boot.spi.PersistenceUnitDescriptor;
-import org.jboss.logging.Logger;
 
 public final class LightPersistenceXmlDescriptor implements PersistenceUnitDescriptor {
-
-    private static final Logger log = Logger.getLogger(LightPersistenceXmlDescriptor.class);
 
     private final String name;
     private final String providerClassName;
@@ -28,58 +24,39 @@ public final class LightPersistenceXmlDescriptor implements PersistenceUnitDescr
     private final List<String> managedClassNames;
     private final Properties properties;
 
-    public LightPersistenceXmlDescriptor(final PersistenceUnitDescriptor toClone) {
-        this.name = toClone.getName();
-        this.providerClassName = toClone.getProviderClassName();
-        this.useQuotedIdentifiers = toClone.isUseQuotedIdentifiers();
-        this.transactionType = toClone.getTransactionType();
-        this.validationMode = toClone.getValidationMode();
-        this.sharedCachemode = toClone.getSharedCacheMode();
-        this.managedClassNames = Collections.unmodifiableList(toClone.getManagedClassNames());
-        this.properties = filterNonStrings(toClone.getProperties());
+    /**
+     * Internal constructor, as we're trusting all parameters. Useful for serialization to bytecode.
+     * (intentionally set to package-private visibility)
+     */
+    LightPersistenceXmlDescriptor(String name, String providerClassName, boolean useQuotedIdentifiers,
+            PersistenceUnitTransactionType transactionType,
+            ValidationMode validationMode, SharedCacheMode sharedCachemode, List<String> managedClassNames,
+            Properties properties) {
+        this.name = name;
+        this.providerClassName = providerClassName;
+        this.useQuotedIdentifiers = useQuotedIdentifiers;
+        this.transactionType = transactionType;
+        this.validationMode = validationMode;
+        this.sharedCachemode = sharedCachemode;
+        this.managedClassNames = managedClassNames;
+        this.properties = properties;
+    }
+
+    /**
+     * Converts a generic PersistenceUnitDescriptor into one of this specific type, and validates that
+     * several options that Quarkus does not support are not set.
+     * 
+     * @param toClone the descriptor to clone
+     * @return a new instance of LightPersistenceXmlDescriptor
+     * @throws UnsupportedOperationException on unsupported configurations
+     */
+    public static LightPersistenceXmlDescriptor validateAndReadFrom(PersistenceUnitDescriptor toClone) {
+        Objects.requireNonNull(toClone);
         verifyIgnoredFields(toClone);
-    }
-
-    private static void verifyIgnoredFields(final PersistenceUnitDescriptor toClone) {
-        if (toClone.getNonJtaDataSource() != null) {
-            throw new UnsupportedOperationException("Value found for #getNonJtaDataSource : not supported yet");
-        }
-        // This one needs to be ignored:
-        // if ( toClone.getPersistenceUnitRootUrl() != null ) {
-        // throw new UnsupportedOperationException( "Value found for
-        // #getPersistenceUnitRootUrl : not supported yet" );
-        // }
-        if (toClone.getMappingFileNames() != null && !toClone.getMappingFileNames().isEmpty()) {
-            throw new UnsupportedOperationException("Value found for #getMappingFileNames : not supported yet");
-        }
-        if (toClone.getJarFileUrls() != null && !toClone.getJarFileUrls().isEmpty()) {
-            throw new UnsupportedOperationException("Value found for #getJarFileUrls : not supported yet");
-        }
-        if (toClone.getJtaDataSource() != null) {
-            throw new UnsupportedOperationException("Value found for #getJtaDataSource : not supported yet");
-        }
-        if (toClone.getNonJtaDataSource() != null) {
-            throw new UnsupportedOperationException("Value found for #getNonJtaDataSource : not supported");
-        }
-    }
-
-    private static final Properties filterNonStrings(final Properties properties) {
-        Properties clean = new Properties();
-        final Set<Map.Entry<Object, Object>> entries = properties.entrySet();
-        for (Map.Entry<Object, Object> e : entries) {
-            final Object key = e.getKey();
-            if (!(key instanceof String)) {
-                log.infof("Ignoring persistence unit property key '%s' as it's not a String", key);
-                continue;
-            }
-            final Object value = e.getValue();
-            if (!(value instanceof String)) {
-                log.infof("Ignoring persistence unit property for key '%s' as the value is not a String", key);
-                continue;
-            }
-            clean.setProperty((String) key, (String) value);
-        }
-        return clean;
+        return new LightPersistenceXmlDescriptor(toClone.getName(), toClone.getProviderClassName(),
+                toClone.isUseQuotedIdentifiers(),
+                toClone.getTransactionType(), toClone.getValidationMode(), toClone.getSharedCacheMode(),
+                Collections.unmodifiableList(toClone.getManagedClassNames()), toClone.getProperties());
     }
 
     @Override
@@ -169,6 +146,26 @@ public final class LightPersistenceXmlDescriptor implements PersistenceUnitDescr
     @Override
     public void pushClassTransformer(final EnhancementContext enhancementContext) {
         // has never been supported
+    }
+
+    private static void verifyIgnoredFields(final PersistenceUnitDescriptor toClone) {
+        // This one needs to be ignored:
+        // if ( toClone.getPersistenceUnitRootUrl() != null ) {
+        // throw new UnsupportedOperationException( "Value found for
+        // #getPersistenceUnitRootUrl : not supported yet" );
+        // }
+        if (toClone.getMappingFileNames() != null && !toClone.getMappingFileNames().isEmpty()) {
+            throw new UnsupportedOperationException("Value found for #getMappingFileNames : not supported yet");
+        }
+        if (toClone.getJarFileUrls() != null && !toClone.getJarFileUrls().isEmpty()) {
+            throw new UnsupportedOperationException("Value found for #getJarFileUrls : not supported yet");
+        }
+        if (toClone.getJtaDataSource() != null) {
+            throw new UnsupportedOperationException("Value found for #getJtaDataSource : not supported yet");
+        }
+        if (toClone.getNonJtaDataSource() != null) {
+            throw new UnsupportedOperationException("Value found for #getNonJtaDataSource : not supported");
+        }
     }
 
     @Override

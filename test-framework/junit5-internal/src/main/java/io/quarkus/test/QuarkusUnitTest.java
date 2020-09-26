@@ -3,8 +3,6 @@ package io.quarkus.test;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
@@ -12,13 +10,11 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.nio.file.FileVisitResult;
-import java.nio.file.FileVisitor;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -28,9 +24,9 @@ import java.util.Timer;
 import java.util.TimerTask;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import org.jboss.shrinkwrap.api.ShrinkWrap;
-import org.jboss.shrinkwrap.api.asset.Asset;
 import org.jboss.shrinkwrap.api.exporter.ExplodedExporter;
 import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.extension.AfterAllCallback;
@@ -48,11 +44,14 @@ import io.quarkus.bootstrap.app.QuarkusBootstrap;
 import io.quarkus.bootstrap.app.RunningQuarkusApplication;
 import io.quarkus.bootstrap.classloading.ClassPathElement;
 import io.quarkus.bootstrap.classloading.QuarkusClassLoader;
+import io.quarkus.bootstrap.model.AppArtifact;
+import io.quarkus.bootstrap.model.AppDependency;
 import io.quarkus.builder.BuildChainBuilder;
 import io.quarkus.builder.BuildContext;
 import io.quarkus.builder.BuildException;
 import io.quarkus.builder.BuildStep;
 import io.quarkus.builder.item.BuildItem;
+import io.quarkus.deployment.util.FileUtil;
 import io.quarkus.runner.bootstrap.AugmentActionImpl;
 import io.quarkus.test.common.PathTestHelper;
 import io.quarkus.test.common.PropertyTestUtil;
@@ -66,6 +65,8 @@ import io.quarkus.test.common.http.TestHTTPResourceManager;
 public class QuarkusUnitTest
         implements BeforeAllCallback, AfterAllCallback, BeforeEachCallback, AfterEachCallback,
         InvocationInterceptor {
+
+    public static final String THE_BUILD_WAS_EXPECTED_TO_FAIL = "The build was expected to fail";
 
     static {
         System.setProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager");
@@ -88,11 +89,13 @@ public class QuarkusUnitTest
     private CuratedApplication curatedApplication;
     private RunningQuarkusApplication runningQuarkusApplication;
     private ClassLoader originalClassLoader;
+    private List<AppArtifact> forcedDependencies = Collections.emptyList();
 
     private boolean useSecureConnection;
 
     private Class<?> actualTestClass;
     private Object actualTestInstance;
+    private String[] commandLineParameters = new String[0];
 
     private boolean allowTestClassOutsideDeployment;
 
@@ -125,6 +128,10 @@ public class QuarkusUnitTest
     }
 
     public QuarkusUnitTest assertException(Consumer<Throwable> assertException) {
+        if (this.assertException != null) {
+            throw new IllegalStateException("Don't set the asserted or excepted exception twice"
+                    + " to avoid shadowing out the first call.");
+        }
         this.assertException = assertException;
         return this;
     }
@@ -158,6 +165,24 @@ public class QuarkusUnitTest
     // set a Runnable that will run after EVERYTHING else is done
     public QuarkusUnitTest setAfterAllCustomizer(Runnable afterAllCustomizer) {
         this.afterAllCustomizer = afterAllCustomizer;
+        return this;
+    }
+
+    /**
+     * Provides a convenient way to either add additional dependencies to the application (if it doesn't already contain a
+     * dependency), or override a version (if the dependency already exists)
+     */
+    public QuarkusUnitTest setForcedDependencies(List<AppArtifact> forcedDependencies) {
+        this.forcedDependencies = forcedDependencies;
+        return this;
+    }
+
+    public String[] getCommandLineParameters() {
+        return commandLineParameters;
+    }
+
+    public QuarkusUnitTest setCommandLineParameters(String... commandLineParameters) {
+        this.commandLineParameters = commandLineParameters;
         return this;
     }
 
@@ -251,7 +276,7 @@ public class QuarkusUnitTest
         invocation.skip();
     }
 
-    private void runExtensionMethod(ReflectiveInvocationContext<Method> invocationContext) {
+    private void runExtensionMethod(ReflectiveInvocationContext<Method> invocationContext) throws Throwable {
         Method newMethod = null;
         Class<?> c = actualTestClass;
         while (c != Object.class) {
@@ -271,10 +296,7 @@ public class QuarkusUnitTest
             newMethod.setAccessible(true);
             newMethod.invoke(actualTestInstance, invocationContext.getArguments().toArray());
         } catch (InvocationTargetException e) {
-            if (e.getCause() instanceof RuntimeException) {
-                throw (RuntimeException) e.getCause();
-            }
-            throw new RuntimeException(e.getCause());
+            throw e.getCause();
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         }
@@ -309,12 +331,13 @@ public class QuarkusUnitTest
         ExtensionContext.Store store = extensionContext.getRoot().getStore(ExtensionContext.Namespace.GLOBAL);
         if (store.get(TestResourceManager.class.getName()) == null) {
             TestResourceManager manager = new TestResourceManager(extensionContext.getRequiredTestClass());
+            manager.init();
             manager.start();
             store.put(TestResourceManager.class.getName(), new ExtensionContext.Store.CloseableResource() {
 
                 @Override
                 public void close() throws Throwable {
-                    manager.stop();
+                    manager.close();
                 }
             });
         }
@@ -357,10 +380,18 @@ public class QuarkusUnitTest
             final Path testLocation = PathTestHelper.getTestClassesLocation(testClass);
 
             try {
-                QuarkusBootstrap.Builder builder = QuarkusBootstrap.builder(deploymentDir)
+                QuarkusBootstrap.Builder builder = QuarkusBootstrap.builder()
+                        .setApplicationRoot(deploymentDir)
                         .setMode(QuarkusBootstrap.Mode.TEST)
                         .addExcludedPath(testLocation)
-                        .setProjectRoot(testLocation);
+                        .setProjectRoot(testLocation)
+                        .setForcedDependencies(forcedDependencies.stream().map(d -> new AppDependency(d, "compile"))
+                                .collect(Collectors.toList()));
+                if (!forcedDependencies.isEmpty()) {
+                    //if we have forced dependencies we can't use the cache
+                    //as it can screw everything up
+                    builder.setDisableClasspathCache(true);
+                }
                 if (!allowTestClassOutsideDeployment) {
                     builder
                             .setBaseClassLoader(
@@ -372,11 +403,11 @@ public class QuarkusUnitTest
 
                 runningQuarkusApplication = new AugmentActionImpl(curatedApplication, customizers)
                         .createInitialRuntimeApplication()
-                        .run(new String[0]);
+                        .run(commandLineParameters);
                 //we restore the CL at the end of the test
                 Thread.currentThread().setContextClassLoader(runningQuarkusApplication.getClassLoader());
                 if (assertException != null) {
-                    fail("The build was expected to fail");
+                    fail(THE_BUILD_WAS_EXPECTED_TO_FAIL);
                 }
                 started = true;
                 System.setProperty("test.url", TestHTTPResourceManager.getUri(runningQuarkusApplication));
@@ -395,6 +426,10 @@ public class QuarkusUnitTest
             } catch (Throwable e) {
                 started = false;
                 if (assertException != null) {
+                    if (e instanceof AssertionError && e.getMessage().equals(THE_BUILD_WAS_EXPECTED_TO_FAIL)) {
+                        //don't pass the 'no failure' assertion into the assert exception function
+                        throw e;
+                    }
                     if (e instanceof RuntimeException) {
                         Throwable cause = e.getCause();
                         if (cause != null && cause instanceof BuildException) {
@@ -439,44 +474,21 @@ public class QuarkusUnitTest
             if (afterUndeployListener != null) {
                 afterUndeployListener.run();
             }
-            curatedApplication.close();
+            if (curatedApplication != null) {
+                curatedApplication.close();
+            }
         } finally {
+            System.clearProperty("test.url");
             Thread.currentThread().setContextClassLoader(originalClassLoader);
             timeoutTask.cancel();
             timeoutTask = null;
             if (deploymentDir != null) {
-                Files.walkFileTree(deploymentDir, new FileVisitor<Path>() {
-                    @Override
-                    public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-                            throws IOException {
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    @Override
-                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
-                        Files.delete(file);
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    @Override
-                    public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    @Override
-                    public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                        if (exc == null) {
-                            Files.delete(dir);
-                            return FileVisitResult.CONTINUE;
-                        } else {
-                            throw exc;
-                        }
-                    }
-                });
+                FileUtil.deleteDirectory(deploymentDir);
             }
-        }
-        if (afterAllCustomizer != null) {
-            afterAllCustomizer.run();
+
+            if (afterAllCustomizer != null) {
+                afterAllCustomizer.run();
+            }
         }
     }
 
@@ -544,24 +556,5 @@ public class QuarkusUnitTest
         }
         customApplicationProperties.put(propertyKey, propertyValue);
         return this;
-    }
-
-    private static class PropertiesAsset implements Asset {
-        private final Properties props;
-
-        public PropertiesAsset(final Properties props) {
-            this.props = props;
-        }
-
-        @Override
-        public InputStream openStream() {
-            final ByteArrayOutputStream outputStream = new ByteArrayOutputStream(128);
-            try {
-                props.store(outputStream, "Unit test Generated Application properties");
-            } catch (IOException e) {
-                throw new RuntimeException("Could not write application properties resource", e);
-            }
-            return new ByteArrayInputStream(outputStream.toByteArray());
-        }
     }
 }

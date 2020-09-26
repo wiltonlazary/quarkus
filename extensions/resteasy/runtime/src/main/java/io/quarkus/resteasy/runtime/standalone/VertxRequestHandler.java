@@ -19,6 +19,7 @@ import org.jboss.resteasy.spi.ResteasyDeployment;
 
 import io.quarkus.arc.ManagedContext;
 import io.quarkus.arc.runtime.BeanContainer;
+import io.quarkus.runtime.BlockingOperationControl;
 import io.quarkus.security.identity.CurrentIdentityAssociation;
 import io.quarkus.vertx.http.runtime.CurrentVertxRequest;
 import io.quarkus.vertx.http.runtime.VertxInputStream;
@@ -44,12 +45,13 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
     protected final CurrentIdentityAssociation association;
     protected final CurrentVertxRequest currentVertxRequest;
     protected final Executor executor;
+    protected final long readTimeout;
 
     public VertxRequestHandler(Vertx vertx,
             BeanContainer beanContainer,
             ResteasyDeployment deployment,
             String rootPath,
-            BufferAllocator allocator, Executor executor) {
+            BufferAllocator allocator, Executor executor, long readTimeout) {
         this.vertx = vertx;
         this.beanContainer = beanContainer;
         this.dispatcher = new RequestDispatcher((SynchronousDispatcher) deployment.getDispatcher(),
@@ -57,6 +59,7 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
         this.rootPath = rootPath;
         this.allocator = allocator;
         this.executor = executor;
+        this.readTimeout = readTimeout;
         Instance<CurrentIdentityAssociation> association = CDI.current().select(CurrentIdentityAssociation.class);
         this.association = association.isResolvable() ? association.get() : null;
         currentVertxRequest = CDI.current().select(CurrentVertxRequest.class).get();
@@ -71,31 +74,39 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
             if (request.getBody() != null) {
                 is = new ByteArrayInputStream(request.getBody().getBytes());
             } else {
-                is = new VertxInputStream(request);
+                is = new VertxInputStream(request, readTimeout);
             }
         } catch (IOException e) {
             request.fail(e);
             return;
         }
-
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    dispatch(request, is, new VertxBlockingOutput(request.request()));
-                } catch (Throwable e) {
-                    request.fail(e);
-                }
+        if (BlockingOperationControl.isBlockingAllowed()) {
+            try {
+                dispatch(request, is, new VertxBlockingOutput(request.request()));
+            } catch (Throwable e) {
+                request.fail(e);
             }
-        });
+        } else {
+            executor.execute(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        dispatch(request, is, new VertxBlockingOutput(request.request()));
+                    } catch (Throwable e) {
+                        request.fail(e);
+                    }
+                }
+            });
+        }
+
     }
 
     private void dispatch(RoutingContext routingContext, InputStream is, VertxOutput output) {
         ManagedContext requestContext = beanContainer.requestContext();
         requestContext.activate();
-        QuarkusHttpUser user = (QuarkusHttpUser) routingContext.user();
-        if (user != null && association != null) {
-            association.setIdentity(user.getSecurityIdentity());
+        routingContext.remove(QuarkusHttpUser.AUTH_FAILURE_HANDLER);
+        if (association != null) {
+            association.setIdentity(QuarkusHttpUser.getSecurityIdentity(routingContext, null));
         }
         currentVertxRequest.setCurrent(routingContext);
         try {
@@ -105,17 +116,17 @@ public class VertxRequestHandler implements Handler<RoutingContext> {
             ResteasyHttpHeaders headers = VertxUtil.extractHttpHeaders(request);
             HttpServerResponse response = request.response();
             VertxHttpResponse vertxResponse = new VertxHttpResponse(request, dispatcher.getProviderFactory(),
-                    request.method(), allocator, output);
+                    request.method(), allocator, output, routingContext);
 
             // using a supplier to make the remote Address resolution lazy: often it's not needed and it's not very cheap to create.
             LazyHostSupplier hostSupplier = new LazyHostSupplier(request);
 
             VertxHttpRequest vertxRequest = new VertxHttpRequest(ctx, routingContext, headers, uriInfo, request.rawMethod(),
                     hostSupplier,
-                    dispatcher.getDispatcher(), vertxResponse, requestContext);
+                    dispatcher.getDispatcher(), vertxResponse, requestContext, executor);
             vertxRequest.setInputStream(is);
             try {
-                ResteasyContext.pushContext(SecurityContext.class, new QuarkusResteasySecurityContext(request));
+                ResteasyContext.pushContext(SecurityContext.class, new QuarkusResteasySecurityContext(request, routingContext));
                 ResteasyContext.pushContext(RoutingContext.class, routingContext);
                 dispatcher.service(ctx, request, response, vertxRequest, vertxResponse, true);
             } catch (Failure e1) {

@@ -33,20 +33,32 @@ import org.jboss.jandex.DotName;
 enum BuiltinBean {
 
     INSTANCE(ctx -> {
-        ResultHandle qualifiers = BeanGenerator.collectQualifiers(ctx.classOutput, ctx.clazzCreator, ctx.beanDeployment,
-                ctx.constructor,
-                ctx.injectionPoint,
-                ctx.annotationLiterals);
+        ResultHandle qualifiers = BeanGenerator.collectInjectionPointQualifiers(ctx.classOutput, ctx.clazzCreator,
+                ctx.beanDeployment,
+                ctx.constructor, ctx.injectionPoint, ctx.annotationLiterals);
         ResultHandle parameterizedType = Types.getTypeHandle(ctx.constructor, ctx.injectionPoint.getRequiredType());
-        ResultHandle annotationsHandle = BeanGenerator.collectAnnotations(ctx.classOutput, ctx.clazzCreator, ctx.beanDeployment,
-                ctx.constructor,
-                ctx.injectionPoint, ctx.annotationLiterals);
+        ResultHandle annotationsHandle = BeanGenerator.collectInjectionPointAnnotations(ctx.classOutput, ctx.clazzCreator,
+                ctx.beanDeployment,
+                ctx.constructor, ctx.injectionPoint, ctx.annotationLiterals, ctx.injectionPointAnnotationsPredicate);
         ResultHandle javaMemberHandle = BeanGenerator.getJavaMemberHandle(ctx.constructor, ctx.injectionPoint,
                 ctx.reflectionRegistration);
+        ResultHandle beanHandle;
+        switch (ctx.targetInfo.kind()) {
+            case OBSERVER:
+                // For observers the first argument is always the declaring bean
+                beanHandle = ctx.constructor.invokeInterfaceMethod(
+                        MethodDescriptors.SUPPLIER_GET, ctx.constructor.getMethodParam(0));
+                break;
+            case BEAN:
+                beanHandle = ctx.constructor.getThis();
+                break;
+            default:
+                throw new IllegalStateException("Unsupported target info: " + ctx.targetInfo);
+        }
         ResultHandle instanceProvider = ctx.constructor.newInstance(
                 MethodDescriptor.ofConstructor(InstanceProvider.class, java.lang.reflect.Type.class, Set.class,
                         InjectableBean.class, Set.class, Member.class, int.class),
-                parameterizedType, qualifiers, ctx.constructor.getThis(), annotationsHandle, javaMemberHandle,
+                parameterizedType, qualifiers, beanHandle, annotationsHandle, javaMemberHandle,
                 ctx.constructor.load(ctx.injectionPoint.getPosition()));
         ResultHandle instanceProviderSupplier = ctx.constructor.newInstance(
                 MethodDescriptors.FIXED_VALUE_SUPPLIER_CONSTRUCTOR, instanceProvider);
@@ -156,7 +168,7 @@ enum BuiltinBean {
         if (!ctx.injectionPoint.getRequiredQualifiers().isEmpty()) {
             for (AnnotationInstance annotation : ctx.injectionPoint.getRequiredQualifiers()) {
                 // Create annotation literal first
-                ClassInfo annotationClass = getClassByName(ctx.beanDeployment.getIndex(), annotation.name());
+                ClassInfo annotationClass = getClassByName(ctx.beanDeployment.getBeanArchiveIndex(), annotation.name());
                 ctx.constructor.invokeInterfaceMethod(MethodDescriptors.SET_ADD, annotations,
                         ctx.annotationLiterals.process(ctx.constructor, ctx.classOutput,
                                 annotationClass, annotation,
@@ -240,11 +252,12 @@ enum BuiltinBean {
         final AnnotationLiteralProcessor annotationLiterals;
         final InjectionTargetInfo targetInfo;
         final ReflectionRegistration reflectionRegistration;
+        final Predicate<DotName> injectionPointAnnotationsPredicate;
 
         public GeneratorContext(ClassOutput classOutput, BeanDeployment beanDeployment, InjectionPointInfo injectionPoint,
                 ClassCreator clazzCreator, MethodCreator constructor, String providerName,
                 AnnotationLiteralProcessor annotationLiterals, InjectionTargetInfo targetInfo,
-                ReflectionRegistration reflectionRegistration) {
+                ReflectionRegistration reflectionRegistration, Predicate<DotName> injectionPointAnnotationsPredicate) {
             this.classOutput = classOutput;
             this.beanDeployment = beanDeployment;
             this.injectionPoint = injectionPoint;
@@ -254,6 +267,7 @@ enum BuiltinBean {
             this.annotationLiterals = annotationLiterals;
             this.targetInfo = targetInfo;
             this.reflectionRegistration = reflectionRegistration;
+            this.injectionPointAnnotationsPredicate = injectionPointAnnotationsPredicate;
         }
     }
 

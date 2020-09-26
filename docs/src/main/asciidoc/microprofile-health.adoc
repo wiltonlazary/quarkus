@@ -22,7 +22,7 @@ To complete this guide, you need:
 * less than 15 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 
 == Architecture
 
@@ -57,6 +57,24 @@ cd microprofile-health-quickstart
 This command generates a Maven project, importing the `smallrye-health` extension 
 which is an implementation of the MicroProfile Health specification used in Quarkus.
 
+If you already have your Quarkus project configured, you can add the `smallrye-health` extension
+to your project by running the following command in your project base directory:
+
+[source,bash]
+----
+./mvnw quarkus:add-extension -Dextensions="smallrye-health"
+----
+
+This will add the following to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-smallrye-health</artifactId>
+</dependency>
+----
+
 == Running the health check
 
 Importing the `smallrye-health` extension directly exposes three REST endpoints:
@@ -84,11 +102,11 @@ any health check procedure yet so let's define some.
 
 In this section, we create our first simple health check procedure.
 
-Create the `org.acme.health.SimpleHealthCheck` class:
+Create the `org.acme.microprofile.health.SimpleHealthCheck` class:
 
 [source,java]
 ----
-package org.acme.health;
+package org.acme.microprofile.health;
 
 import org.eclipse.microprofile.health.HealthCheck;
 import org.eclipse.microprofile.health.HealthCheckResponse;
@@ -97,7 +115,7 @@ import org.eclipse.microprofile.health.Liveness;
 import javax.enterprise.context.ApplicationScoped;
 
 @Liveness
-@ApplicationScoped
+@ApplicationScoped <1> <2>
 public class SimpleHealthCheck implements HealthCheck {
 
     @Override
@@ -106,10 +124,10 @@ public class SimpleHealthCheck implements HealthCheck {
     }
 }
 ----
+<1> It's recommended to annotate the health check class with `@ApplicationScoped` or the `@Singleton` scope so that a single bean instance is used for all health check requests. 
+<2> If a bean class annotated with one of the health check annotations declares no scope then the `@Singleton` scope is used automatically.
 
-As you can see health check procedures are defined as implementations of the 
-`HealthCheck` interface which are defined as CDI beans with the one of the 
-following CDI qualifiers: 
+As you can see, the health check procedures are defined as CDI beans that implement the `HealthCheck` interface and are annotated with one of the health check qualifiers, such as: 
 
 - `@Liveness` - the liveness check accessible at `/health/live`
 - `@Readiness` - the readiness check accessible at `/health/ready`
@@ -138,11 +156,11 @@ We will create another health check procedure that simulates a connection to
 an external service provider such as a database. For starters, we will always return 
 the response indicating the application is ready.
 
-Create `org.acme.health.DatabaseConnectionHealthCheck` class:
+Create `org.acme.microprofile.health.DatabaseConnectionHealthCheck` class:
 
 [source,java]
 ----
-package org.acme.health;
+package org.acme.microprofile.health;
 
 import org.eclipse.microprofile.health.HealthCheck;
 import org.eclipse.microprofile.health.HealthCheckResponse;
@@ -184,11 +202,11 @@ stating that our application is not ready to process requests as the underlying
 database connection cannot be established. For simplicity reasons, we only determine 
 whether the database is accessible or not by a configuration property.
 
-Update the `org.acme.health.DatabaseConnectionHealthCheck` class:
+Update the `org.acme.microprofile.health.DatabaseConnectionHealthCheck` class:
 
 [source,java]
 ----
-package org.acme.health;
+package org.acme.microprofile.health;
 
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.health.HealthCheck;
@@ -255,11 +273,11 @@ arbitrary data in the form of key-value pairs sent to the consuming end. This ca
 done by using the `withData(key, value)` method of the health check response 
 builder API.
 
-Let's create a new health check procedure `org.acme.health.DataHealthCheck`:
+Let's create a new health check procedure `org.acme.microprofile.health.DataHealthCheck`:
 
 [source,java]
 ----
-package org.acme.health;
+package org.acme.microprofile.health;
 
 import org.eclipse.microprofile.health.Liveness;
 import org.eclipse.microprofile.health.HealthCheck;
@@ -311,6 +329,18 @@ For example, `quarkus-agroal` that is used to manage Quarkus datasource(s) autom
 that will validate each datasources: link:datasource#datasource-health-check[Datasource Health Check].
 
 You can disable extension health check via the property `quarkus.health.extensions.enabled` so none will be automatically registered.
+
+== Health UI 
+
+NOTE: Experimental - not included in the MicroProfile specification
+
+`health-ui` allows you to see your Health Checks in a Web GUI.
+
+The Quarkus `smallrye-health` extension ships with `health-ui` and enables it by default in dev and test modes, but it can also be explicitly configured for production mode as well.
+
+`health-ui` can be accessed from http://localhost:8080/health-ui/ .
+
+image:health-ui-screenshot01.png[alt=Health UI]
 
 == Conclusion
 

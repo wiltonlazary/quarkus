@@ -11,8 +11,9 @@ import org.jboss.shrinkwrap.api.spec.JavaArchive;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 
-import io.quarkus.security.test.utils.AuthData;
-import io.quarkus.security.test.utils.IdentityMock;
+import io.quarkus.security.test.AuthData;
+import io.quarkus.security.test.IdentityMock;
+import io.quarkus.security.test.SecurityTestUtils;
 import io.quarkus.test.QuarkusUnitTest;
 
 public class SecurityAnnotationOnFinalMethodWithDisableFinalRemovalTest {
@@ -23,7 +24,7 @@ public class SecurityAnnotationOnFinalMethodWithDisableFinalRemovalTest {
                     .addClasses(BeanWithSecuredFinalMethod.class, IdentityMock.class,
                             AuthData.class, SecurityTestUtils.class)
                     .addAsResource(new StringAsset(
-                            "quarkus.arc.remove-final-for-proxyable-methods=false"),
+                            "quarkus.arc.transform-unproxyable-classes=false"),
                             "application.properties"))
             .setExpectedException(DeploymentException.class);
 

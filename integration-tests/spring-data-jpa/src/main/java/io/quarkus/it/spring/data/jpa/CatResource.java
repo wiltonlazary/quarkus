@@ -89,6 +89,12 @@ public class CatResource {
     }
 
     @GET
+    @Path("/count/by/color/{color}/contains")
+    public Long countByColorContains(@PathParam("color") String color) {
+        return catRepository.countByColorContainsIgnoreCase(color);
+    }
+
+    @GET
     @Path("/exists/by/colorStartsWith/{color}")
     public Boolean existsByColorStartsWith(@PathParam("color") String color) {
         return catRepository.existsByColorStartingWith(color);
@@ -112,5 +118,12 @@ public class CatResource {
     @Path("/by/distinctive/false")
     public List<Cat> byDistinctiveFalse() {
         return catRepository.findByDistinctiveFalse();
+    }
+
+    @GET
+    @Path("/customFindDistinctive/{id}")
+    @Produces("text/plain")
+    public Boolean customFindDistinctive(@PathParam("id") Long id) {
+        return catRepository.customFindDistinctive(id);
     }
 }

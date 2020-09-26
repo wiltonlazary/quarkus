@@ -40,6 +40,15 @@ public class PolicyEnforcerTest {
                 .then()
                 .statusCode(200)
                 .and().body(Matchers.containsString("Permission Resource"));
+        RestAssured.given().auth().oauth2(getAccessToken("jdoe"))
+                .when().get("/api/permission/scope?scope=write")
+                .then()
+                .statusCode(403);
+        RestAssured.given().auth().oauth2(getAccessToken("jdoe"))
+                .when().get("/api/permission/scope?scope=read")
+                .then()
+                .statusCode(200)
+                .and().body(Matchers.containsString("read"));
         ;
         RestAssured.given().auth().oauth2(getAccessToken("admin"))
                 .when().get("/api/permission")
@@ -96,6 +105,24 @@ public class PolicyEnforcerTest {
                 .when().get("/api/public")
                 .then()
                 .statusCode(204);
+    }
+
+    @Test
+    public void testPathConfigurationPrecedenceWhenPathCacheNotDefined() {
+        RestAssured.given()
+                .when().get("/api2/resource")
+                .then()
+                .statusCode(401);
+
+        RestAssured.given()
+                .when().get("/hello")
+                .then()
+                .statusCode(404);
+
+        RestAssured.given()
+                .when().get("/")
+                .then()
+                .statusCode(404);
     }
 
     private String getAccessToken(String userName) {

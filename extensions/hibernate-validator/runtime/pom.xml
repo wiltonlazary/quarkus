@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>quarkus-hibernate-validator-parent</artifactId>
         <groupId>io.quarkus</groupId>
@@ -12,7 +12,7 @@
 
     <artifactId>quarkus-hibernate-validator</artifactId>
     <name>Quarkus - Hibernate Validator - Runtime</name>
-    <description>Validate data coming to your REST endpoints</description>
+    <description>Validate object properties (field, getter) and method parameters for your beans (REST, CDI, JPA)</description>
     <dependencies>
         <dependency>
             <groupId>io.quarkus</groupId>
@@ -65,6 +65,7 @@
         <dependency>
             <groupId>org.graalvm.nativeimage</groupId>
             <artifactId>svm</artifactId>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
 

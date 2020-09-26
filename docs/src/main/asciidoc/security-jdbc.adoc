@@ -3,7 +3,7 @@ This guide is maintained in the main Quarkus repository
 and pull requests should be submitted there:
 https://github.com/quarkusio/quarkus/tree/master/docs/src/main/asciidoc
 ////
-= Quarkus - Using Security with a JDBC Realm
+= Quarkus - Using Security with JDBC
 
 include::./attributes.adoc[]
 
@@ -17,7 +17,7 @@ To complete this guide, you need:
 * less than 15 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 
 == Architecture
 
@@ -61,13 +61,31 @@ Don't forget to add the database connector library of choice. Here we are using 
 This command generates a Maven project, importing the `elytron-security-jdbc` extension
 which is an https://docs.wildfly.org/17/WildFly_Elytron_Security.html#jdbc-security-realm[`wildfly-elytron-realm-jdbc`] adapter for Quarkus applications.
 
+If you already have your Quarkus project configured, you can add the `elytron-security-jdbc` extension
+to your project by running the following command in your project base directory:
+
+[source,bash]
+----
+./mvnw quarkus:add-extension -Dextensions="elytron-security-jdbc"
+----
+
+This will add the following to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-elytron-security-jdbc</artifactId>
+</dependency>
+----
+
 == Writing the application
 
 Let's start by implementing the `/api/public` endpoint. As you can see from the source code below, it is just a regular JAX-RS resource:
 
 [source,java]
 ----
-package org.acme.elytron.security.jdbc;
+package org.acme.security.jdbc;
 
 import javax.annotation.security.PermitAll;
 import javax.ws.rs.GET;
@@ -92,7 +110,7 @@ The source code for the `/api/admin` endpoint is also very simple. The main diff
 
 [source,java]
 ----
-package org.acme.elytron.security.jdbc;
+package org.acme.security.jdbc;
 
 import javax.annotation.security.RolesAllowed;
 import javax.ws.rs.GET;
@@ -117,7 +135,7 @@ We are using `SecurityContext` to get access to the current authenticated Princi
 
 [source,java]
 ----
-package org.acme.elytron.security.jdbc;
+package org.acme.security.jdbc;
 
 import javax.annotation.security.RolesAllowed;
 import javax.inject.Inject;
@@ -147,13 +165,13 @@ The `elytron-security-jdbc` extension requires at least one datasource to access
 
 [source,properties]
 ----
-quarkus.datasource.url=jdbc:postgresql:elytron-security-jdbc
-quarkus.datasource.driver=org.postgresql.Driver
+quarkus.datasource.db-kind=postgresql
 quarkus.datasource.username=quarkus
 quarkus.datasource.password=quarkus
+quarkus.datasource.jdbc.url=jdbc:postgresql:elytron-security-jdbc
 ----
 
-In our context, we are using PostgreSQL as identity store and we init the database with users and roles.
+In our context, we are using PostgreSQL as identity store and we initialize the database with users and roles.
 
 [source,sql]
 ----
@@ -186,7 +204,7 @@ quarkus.security.jdbc.principal-query.attribute-mappings.0.index=2 <3>
 quarkus.security.jdbc.principal-query.attribute-mappings.0.to=groups
 ----
 
-The `elytron-security-jdbc` extension requires at least one principal query to autenticate the user and its identity.
+The `elytron-security-jdbc` extension requires at least one principal query to authenticate the user and its identity.
 
 <1> We define a parameterized SQL statement (with exactly 1 parameter) which should return the user's password plus any additional information you want to load.
 <2> We  configure the password mapper with the position of the password field in the `SELECT` fields and other information like salt, hash encoding, etc.
@@ -266,15 +284,15 @@ This guide only covered an easy use case, the extension offers multiple datasour
 
 [source,properties]
 --
-quarkus.datasource.url=jdbc:postgresql:multiple-data-sources-users
-quarkus.datasource.driver=org.postgresql.Driver
+quarkus.datasource.db-kind=postgresql
 quarkus.datasource.username=quarkus
 quarkus.datasource.password=quarkus
+quarkus.datasource.jdbc.url=jdbc:postgresql:multiple-data-sources-users
 
-quarkus.datasource.permissions.url=jdbc:postgresql:multiple-data-sources-permissions
-quarkus.datasource.permissions.driver=org.postgresql.Driver
+quarkus.datasource.permissions.db-kind=postgresql
 quarkus.datasource.permissions.username=quarkus
 quarkus.datasource.permissions.password=quarkus
+quarkus.datasource.permissions.jdbc.url=jdbc:postgresql:multiple-data-sources-permissions
 
 quarkus.security.jdbc.enabled=true
 quarkus.security.jdbc.principal-query.sql=SELECT u.password FROM test_user u WHERE u.username=?
@@ -292,7 +310,6 @@ quarkus.security.jdbc.principal-query.roles.attribute-mappings.0.to=groups
 
 include::{generated-dir}/config/quarkus-elytron-security-jdbc.adoc[opts=optional, leveloffset=+1]
 
-== Future Work
+== References
 
-* Propose more password mappers.
-* Provide an opinionated configuration.
+* link:security[Quarkus Security]

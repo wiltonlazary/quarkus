@@ -3,18 +3,24 @@ package io.quarkus.it.rest;
 import java.net.URL;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 
 import javax.inject.Inject;
+import javax.inject.Provider;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
+import javax.ws.rs.client.Client;
+import javax.ws.rs.core.MediaType;
 
 import org.eclipse.microprofile.config.ConfigProvider;
+import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.RestClientBuilder;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
 import io.quarkus.arc.Arc;
+import io.smallrye.mutiny.Multi;
 
 @Path("/client")
 public class ClientResource {
@@ -34,6 +40,13 @@ public class ClientResource {
     @Inject
     @RestClient
     RestClientBaseUriConfigKeyInterface restClientBaseUriConfigKeyInterface;
+
+    @Inject
+    @ConfigProperty(name = "loopback/mp-rest/url", defaultValue = "http://localhost:8080/loopback")
+    Provider<String> loopbackEndpoint;
+
+    @Inject
+    Client client;
 
     @GET
     @Path("/annotation/configKey")
@@ -139,5 +152,59 @@ public class ClientResource {
     @Produces("text/plain")
     public String getDefaultInterfaceScope() {
         return Arc.container().instance(RestClientInterface.class, RestClient.LITERAL).getBean().getScope().getName();
+    }
+
+    @GET
+    @Path("/jaxrs-client")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Greeting testJaxrsClient() throws ClassNotFoundException {
+        Greeting greeting = client.target(loopbackEndpoint.get())
+                .request()
+                .get(Greeting.class);
+        // The LoggingFilter should be programmatically registered in io.quarkus.it.rest.ClientProducer.init()
+        if (!client.getConfiguration().isRegistered(Class.forName("io.quarkus.it.rest.LoggingFilter")))
+            throw new IllegalStateException("LoggingFilter should be registered on injected Client");
+        if (getFilterCount() != 2)
+            throw new IllegalStateException("Call count should have been 2 but was " + getFilterCount());
+        return greeting;
+    }
+
+    private int getFilterCount() {
+        try {
+            // Must use reflection to check filter call count to ensure that
+            // completely decoupled filters are not removed in native mode
+            return Class.forName("io.quarkus.it.rest.LoggingFilter")
+                    .getDeclaredField("CALL_COUNT")
+                    .getInt(null);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return -1;
+        }
+    }
+
+    @Inject
+    @RestClient
+    GouvFrGeoApiClient api;
+
+    @Produces(MediaType.SERVER_SENT_EVENTS)
+    @GET
+    @Path("publisher-client")
+    public Multi<String> publisherClient() {
+        Set<Commune> communes = api.getCommunes("75007");
+        return Multi.createFrom().emitter(emitter -> {
+            try {
+                communes.forEach((commune) -> {
+                    commune.codesPostaux.forEach((postalCode) -> {
+                        int level = org.jboss.resteasy.core.ResteasyContext.getContextDataLevelCount();
+                        api.getCommunes(postalCode).forEach(c -> emitter.emit(c.code + "-" + level));
+                    });
+                });
+            } catch (Exception e) {
+                e.printStackTrace();
+                emitter.fail(e);
+            } finally {
+                emitter.complete();
+            }
+        });
     }
 }

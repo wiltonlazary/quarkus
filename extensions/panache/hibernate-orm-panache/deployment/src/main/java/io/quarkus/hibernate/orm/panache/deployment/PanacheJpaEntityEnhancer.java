@@ -1,6 +1,7 @@
 package io.quarkus.hibernate.orm.panache.deployment;
 
 import java.lang.reflect.Modifier;
+import java.util.List;
 
 import javax.persistence.Transient;
 
@@ -22,6 +23,8 @@ import io.quarkus.panache.common.deployment.EntityField;
 import io.quarkus.panache.common.deployment.EntityModel;
 import io.quarkus.panache.common.deployment.MetamodelInfo;
 import io.quarkus.panache.common.deployment.PanacheEntityEnhancer;
+import io.quarkus.panache.common.deployment.PanacheMethodCustomizer;
+import io.quarkus.panache.common.deployment.visitors.PanacheEntityClassVisitor;
 
 public class PanacheJpaEntityEnhancer extends PanacheEntityEnhancer<MetamodelInfo<EntityModel<EntityField>>> {
 
@@ -38,15 +41,16 @@ public class PanacheJpaEntityEnhancer extends PanacheEntityEnhancer<MetamodelInf
 
     private static final DotName DOTNAME_TRANSIENT = DotName.createSimple(Transient.class.getName());
 
-    public PanacheJpaEntityEnhancer(IndexView index) {
-        super(index, PanacheResourceProcessor.DOTNAME_PANACHE_ENTITY_BASE);
+    public PanacheJpaEntityEnhancer(IndexView index, List<PanacheMethodCustomizer> methodCustomizers) {
+        super(index, methodCustomizers);
         modelInfo = new MetamodelInfo<>();
     }
 
     @Override
     public ClassVisitor apply(String className, ClassVisitor outputClassVisitor) {
-        return new PanacheJpaEntityClassVisitor(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo,
-                indexView.getClassByName(DotName.createSimple(className)));
+        return new PanacheJpaEntityClassVisitor(className, outputClassVisitor, modelInfo,
+                indexView.getClassByName(PanacheHibernateResourceProcessor.DOTNAME_PANACHE_ENTITY_BASE),
+                indexView.getClassByName(DotName.createSimple(className)), methodCustomizers);
     }
 
     static class PanacheJpaEntityClassVisitor extends PanacheEntityClassVisitor<EntityField> {
@@ -54,8 +58,9 @@ public class PanacheJpaEntityEnhancer extends PanacheEntityEnhancer<MetamodelInf
         public PanacheJpaEntityClassVisitor(String className, ClassVisitor outputClassVisitor,
                 MetamodelInfo<EntityModel<EntityField>> modelInfo,
                 ClassInfo panacheEntityBaseClassInfo,
-                ClassInfo entityInfo) {
-            super(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo, entityInfo);
+                ClassInfo entityInfo,
+                List<PanacheMethodCustomizer> methodCustomizers) {
+            super(className, outputClassVisitor, modelInfo, panacheEntityBaseClassInfo, entityInfo, methodCustomizers);
         }
 
         @Override
@@ -69,7 +74,7 @@ public class PanacheJpaEntityEnhancer extends PanacheEntityEnhancer<MetamodelInf
         }
 
         @Override
-        protected String getPanacheOperationsBinaryName() {
+        protected String getPanacheOperationsInternalName() {
             return JPA_OPERATIONS_BINARY_NAME;
         }
 

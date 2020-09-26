@@ -62,8 +62,10 @@ public class BookRepositoryResource {
     @DELETE
     @Path("/{id}")
     public void deleteBook(@PathParam("id") String id) {
-        Book theBook = bookRepository.findById(new ObjectId(id));
-        bookRepository.delete(theBook);
+        boolean deleted = bookRepository.deleteById(new ObjectId(id));
+        if (!deleted) {
+            throw new NotFoundException();
+        }
     }
 
     @GET
@@ -111,4 +113,8 @@ public class BookRepositoryResource {
                 Parameters.with("dateFrom", LocalDate.parse(dateFrom)).and("dateTo", LocalDate.parse(dateTo))).firstResult();
     }
 
+    @DELETE
+    public void deleteAll() {
+        bookRepository.deleteAll();
+    }
 }

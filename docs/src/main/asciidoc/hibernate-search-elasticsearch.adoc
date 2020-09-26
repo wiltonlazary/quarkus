@@ -27,7 +27,7 @@ To complete this guide, you need:
 * less than 20 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 * Docker
 * link:building-native-image[GraalVM installed if you want to run in native mode]
 
@@ -67,10 +67,29 @@ cd hibernate-search-elasticsearch-quickstart
 ----
 
 This command generates a Maven structure importing the following extensions:
+
  * Hibernate ORM with Panache,
  * the PostgreSQL JDBC driver,
  * Hibernate Search + Elasticsearch,
  * RESTEasy and JSON-B.
+
+If you already have your Quarkus project configured, you can add the `hibernate-search-elasticsearch` extension
+to your project by running the following command in your project base directory:
+
+[source,bash]
+----
+./mvnw quarkus:add-extension -Dextensions="hibernate-search-elasticsearch"
+----
+
+This will add the following to your `pom.xml`:
+
+[source,xml]
+----
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-hibernate-search-elasticsearch</artifactId>
+</dependency>
+----
 
 [IMPORTANT]
 ====
@@ -483,7 +502,7 @@ In our existing `LibraryResource`, we just need to inject the following methods 
             @QueryParam Optional<Integer> size) {
         return Search.session(em) // <5>
                 .search(Author.class) // <6>
-                .predicate(f ->
+                .where(f ->
                     pattern == null || pattern.trim().isEmpty() ?
                             f.matchAll() : // <7>
                             f.simpleQueryString()
@@ -510,8 +529,11 @@ the mass indexer should then only be used when you change your indexing configur
 
 [NOTE]
 ====
-Hibernate Search supports a significant part of the Elasticsearch predicates (match, range, nested, phrase, spatial...).
-Feel free to explore the DSL by using autocompletion.
+The Hibernate Search DSL supports a significant subset of the Elasticsearch predicates (match, range, nested, phrase, spatial...).
+Feel free to explore the DSL using autocompletion.
+
+When that's not enough, you can always fall back to
+link:https://docs.jboss.org/hibernate/search/6.0/reference/en-US/html_single/#search-dsl-predicate-extensions-elasticsearch-from-json[defining a predicate using JSON directly].
 ====
 
 == Configuring the application
@@ -524,19 +546,19 @@ Edit `src/main/resources/application.properties` and inject the following config
 ----
 quarkus.ssl.native=false <1>
 
-quarkus.datasource.url=jdbc:postgresql:quarkus_test <2>
-quarkus.datasource.driver=org.postgresql.Driver
+quarkus.datasource.db-kind=postgresql <2>
 quarkus.datasource.username=quarkus_test
 quarkus.datasource.password=quarkus_test
+quarkus.datasource.jdbc.url=jdbc:postgresql:quarkus_test
 
 quarkus.hibernate-orm.database.generation=drop-and-create <3>
 quarkus.hibernate-orm.sql-load-script=import.sql <4>
 
 quarkus.hibernate-search.elasticsearch.version=7 <5>
 quarkus.hibernate-search.elasticsearch.analysis.configurer=org.acme.hibernate.search.elasticsearch.config.AnalysisConfigurer <6>
-quarkus.hibernate-search.elasticsearch.index-defaults.lifecycle.strategy=drop-and-create <7>
-quarkus.hibernate-search.elasticsearch.index-defaults.lifecycle.required-status=yellow <8>
-quarkus.hibernate-search.automatic-indexing.synchronization.strategy=searchable <9>
+quarkus.hibernate-search.schema-management.strategy=drop-and-create <7>
+quarkus.hibernate-search.elasticsearch.schema-management.required-status=yellow <8>
+quarkus.hibernate-search.automatic-indexing.synchronization.strategy=sync <9>
 ----
 <1> We won't use SSL so we disable it to have a more compact native executable.
 <2> Let's create a PostgreSQL datasource.
@@ -547,11 +569,12 @@ It is important because there are significant differences between Elasticsearch 
 Since the mapping is created at build time to reduce startup time, Hibernate Search cannot connect to the cluster to automatically detect the version.
 <6> We point to the custom `AnalysisConfigurer` which defines the configuration of our analyzers and normalizers.
 <7> Obviously, this is not for production: we drop and recreate the index every time we start the application.
-<8> We consider the `yellow` status is sufficient to connect to the Elasticsearch cluster.
+<8> We consider the `yellow` status is sufficient to proceed after an index is created.
 This is for testing purposes with the Elasticsearch Docker container.
 It should not be used in production.
 <9> This means that we wait for the entities to be searchable before considering a write complete.
-While, on a production setup, the `committed` default might be a suitable value, using `searchable` is especially important when testing as you need the entities to be searchable immediately.
+On a production setup, the `write-sync` default will provide better performance.
+Using `sync` is especially important when testing as you need the entities to be searchable immediately.
 
 [TIP]
 For more information about the Hibernate Search extension configuration please refer to the <<configuration-reference, Configuration Reference>>.
@@ -571,8 +594,8 @@ Let's create a `src/main/resources/import.sql` file with the following content:
 
 [source,sql]
 ----
-INSERT INTO author(id, firstname, lastname) VALUES (nextval('hibernate_sequence'), 'John', 'Irving')
-INSERT INTO author(id, firstname, lastname) VALUES (nextval('hibernate_sequence'), 'Paul', 'Auster')
+INSERT INTO author(id, firstname, lastname) VALUES (nextval('hibernate_sequence'), 'John', 'Irving');
+INSERT INTO author(id, firstname, lastname) VALUES (nextval('hibernate_sequence'), 'Paul', 'Auster');
 
 INSERT INTO book(id, title, author_id) VALUES (nextval('hibernate_sequence'), 'The World According to Garp', 1);
 INSERT INTO book(id, title, author_id) VALUES (nextval('hibernate_sequence'), 'The Hotel New Hampshire', 1);
@@ -595,9 +618,9 @@ We need a PostgreSQL instance and an Elasticsearch cluster.
 
 Let's use Docker to start one of each:
 
-[source, shell]
+[source, shell,subs=attributes+]
 ----
-docker run -it --rm=true --name elasticsearch_quarkus_test -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" docker.elastic.co/elasticsearch/elasticsearch:7.5.0
+docker run -it --rm=true --name elasticsearch_quarkus_test -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" docker.elastic.co/elasticsearch/elasticsearch-oss:{elasticsearch-version}
 ----
 
 [source, shell]

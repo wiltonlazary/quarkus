@@ -18,8 +18,10 @@ public class PgPoolProducerTest {
 
     @RegisterExtension
     static final QuarkusUnitTest config = new QuarkusUnitTest()
+            .withConfigurationResource("application-default-datasource.properties")
             .setArchiveProducer(() -> ShrinkWrap.create(JavaArchive.class)
                     .addClasses(BeanUsingBarePgClient.class)
+                    .addClass(BeanUsingMutinyPgClient.class)
                     .addClasses(BeanUsingAxlePgClient.class)
                     .addClasses(BeanUsingRXPgClient.class));
 
@@ -32,9 +34,13 @@ public class PgPoolProducerTest {
     @Inject
     BeanUsingRXPgClient beanUsingRx;
 
+    @Inject
+    BeanUsingMutinyPgClient beanUsingMutiny;
+
     @Test
-    public void testVertxInjection() throws Exception {
+    public void testVertxInjection() {
         beanUsingBare.verify()
+                .thenCompose(v -> beanUsingMutiny.verify())
                 .thenCompose(v -> beanUsingAxle.verify())
                 .thenCompose(v -> beanUsingRx.verify())
                 .toCompletableFuture()
@@ -49,10 +55,22 @@ public class PgPoolProducerTest {
 
         public CompletionStage<Void> verify() {
             CompletableFuture<Void> cf = new CompletableFuture<>();
-            pgClient.query("SELECT 1", ar -> {
-                cf.complete(null);
-            });
+            pgClient.query("SELECT 1").execute(ar -> cf.complete(null));
             return cf;
+        }
+    }
+
+    @ApplicationScoped
+    static class BeanUsingMutinyPgClient {
+
+        @Inject
+        io.vertx.mutiny.pgclient.PgPool pgClient;
+
+        public CompletionStage<Void> verify() {
+            return pgClient.query("SELECT 1").execute()
+                    .onItem().ignore().andContinueWithNull()
+                    .onFailure().recoverWithItem(() -> null)
+                    .subscribeAsCompletionStage();
         }
     }
 
@@ -63,7 +81,7 @@ public class PgPoolProducerTest {
         io.vertx.axle.pgclient.PgPool pgClient;
 
         public CompletionStage<Void> verify() {
-            return pgClient.query("SELECT 1")
+            return pgClient.query("SELECT 1").execute()
                     .<Void> thenApply(rs -> null)
                     .exceptionally(t -> null);
         }
@@ -77,7 +95,7 @@ public class PgPoolProducerTest {
 
         public CompletionStage<Void> verify() {
             CompletableFuture<Void> cf = new CompletableFuture<>();
-            pgClient.rxQuery("SELECT 1")
+            pgClient.query("SELECT 1").rxExecute()
                     .ignoreElement()
                     .onErrorComplete()
                     .subscribe(() -> cf.complete(null));

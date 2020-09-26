@@ -43,7 +43,7 @@ To complete this guide, you need:
 * less than 20 minutes
 * an IDE
 * JDK 1.8+ installed with `JAVA_HOME` configured appropriately
-* Apache Maven 3.5.3+
+* Apache Maven {maven-version}
 * Docker
 * link:building-native-image[GraalVM installed if you want to run in native mode]
 
@@ -71,7 +71,7 @@ First, we need a new project. Create a new project with the following command:
 mvn io.quarkus:quarkus-maven-plugin:{quarkus-version}:create \
     -DprojectGroupId=org.acme.example \
     -DprojectArtifactId=tika-quickstart \
-    -DclassName="org.acme.quickstart.tika.TikaParserResource" \
+    -DclassName="org.acme.tika.TikaParserResource" \
     -Dpath="/parse" \
     -Dextensions="tika,resteasy"
 cd tika-quickstart
@@ -87,27 +87,27 @@ to your project by running the following command in your project base directory.
 ./mvnw quarkus:add-extension -Dextensions="tika,resteasy"
 ----
 
-This will add the following to your pom.xml:
+This will add the following to your `pom.xml`:
 
 [source,xml]
 ----
-    <dependency>
-        <groupId>io.quarkus</groupId>
-        <artifactId>quarkus-tika</artifactId>
-    </dependency>
-    <dependency>
-        <groupId>io.quarkus</groupId>
-        <artifactId>quarkus-resteasy</artifactId>
-    </dependency>
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-tika</artifactId>
+</dependency>
+<dependency>
+    <groupId>io.quarkus</groupId>
+    <artifactId>quarkus-resteasy</artifactId>
+</dependency>
 ----
 
 === Examine the generated JAX-RS resource
 
-Open the `src/main/java/org/acme/quickstart/tika/TikaParserResource.java` file and see the following content:
+Open the `src/main/java/org/acme/tika/TikaParserResource.java` file and see the following content:
 
 [source,java]
 ----
-package org.acme.quickstart.tika;
+package org.acme.tika;
 
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
@@ -131,7 +131,7 @@ Next update `TikaParserResource` to accept and parse PDF and OpenDocument format
 
 [source,java]
 ----
-package org.acme.quickstart.tika;
+package org.acme.tika;
 
 import java.io.InputStream;
 import java.time.Duration;
